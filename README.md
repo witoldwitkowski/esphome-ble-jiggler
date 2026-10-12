@@ -1,5 +1,7 @@
 # BLE Mouse Jiggler (ESPHome, ESP32-C3 + 0.42" OLED)
 
+> **No Home Assistant?** See [README-standalone.md](README-standalone.md): phone setup page, Wi-Fi search and join, selectable mouse identity.
+
 An ESP32-C3 board pairs with your Mac over Bluetooth LE as a standard HID mouse. When enabled it nudges the cursor 1-2 px and straight back at a random interval (default 2-3 minutes), reports its Bluetooth state to Home Assistant (HA), shows status as icons on the OLED, and keeps working with no Wi-Fi or HA.
 
 It is **mouse only**: reports never press a button, scroll, or send a key.

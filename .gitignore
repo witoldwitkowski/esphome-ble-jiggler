@@ -1,3 +1,6 @@
 secrets.yaml
 .esphome/
 __pycache__/
+.dev-*.yaml
+.DS_Store
+ha/automation_light_weekday.yaml

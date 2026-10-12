@@ -23,6 +23,12 @@ struct UiState {
   float ota_pct;     // 0..100
   uint32_t now_ms;
   bool test_pattern;
+  // Standalone (no Home Assistant) firmware only. Value-initialised to off elsewhere.
+  bool standalone;      // hides the Home Assistant house icon
+  bool setup_ap;        // Wi-Fi setup network is up: show setup screen with `tag`
+  bool show_info;       // show the network info screen with `ip`
+  const char *tag;      // short id of this device, e.g. "a1b2c3" (setup screen)
+  const char *ip;       // dotted IPv4 text (info screen)
 };
 
 static const Color ON(255, 255, 255);
@@ -140,6 +146,74 @@ inline void ota_screen(Display &it, float pct, uint32_t now) {
   if (w > 0) it.filled_rectangle(5, 32, w, 4, ON);
 }
 
+// 3x5 glyphs for 0-9, a-f, '.', ':' and '-'. Each row is 3 bits, top row first.
+inline const uint8_t *glyph3x5(char c) {
+  static const uint8_t G[][5] = {
+      {7, 5, 5, 5, 7}, {2, 6, 2, 2, 7}, {7, 1, 7, 4, 7}, {7, 1, 7, 1, 7}, {5, 5, 7, 1, 1},  // 0-4
+      {7, 4, 7, 1, 7}, {7, 4, 7, 5, 7}, {7, 1, 1, 1, 1}, {7, 5, 7, 5, 7}, {7, 5, 7, 1, 7},  // 5-9
+      {2, 5, 7, 5, 5}, {6, 5, 6, 5, 6}, {7, 4, 4, 4, 7}, {6, 5, 5, 5, 6}, {7, 4, 6, 4, 7},  // a-e
+      {7, 4, 6, 4, 4},                                                                         // f
+      {0, 0, 0, 0, 2}, {0, 2, 0, 2, 0}, {0, 0, 7, 0, 0}, {0, 0, 0, 0, 0}};                   // . : - space
+  if (c >= '0' && c <= '9') return G[c - '0'];
+  if (c >= 'a' && c <= 'f') return G[10 + (c - 'a')];
+  if (c >= 'A' && c <= 'F') return G[10 + (c - 'A')];
+  if (c == '.') return G[16];
+  if (c == ':') return G[17];
+  if (c == '-') return G[18];
+  return G[19];
+}
+
+// Draws text at integer scale; advance is 4 * scale. Returns the x after the last glyph.
+inline int text3x5(Display &it, int x, int y, const char *t, int scale) {
+  for (; *t; t++) {
+    const uint8_t *g = glyph3x5(*t);
+    for (int r = 0; r < 5; r++)
+      for (int c = 0; c < 3; c++)
+        if (g[r] & (4 >> c)) it.filled_rectangle(x + c * scale, y + r * scale, scale, scale, ON);
+    x += 4 * scale;
+  }
+  return x;
+}
+
+// Wi-Fi setup screen: arcs radiating from a dot (the device's own network) plus its id.
+inline void setup_screen(Display &it, const char *tag, uint32_t now) {
+  const int cx = 36, cy = 17;
+  const int lit = (now / 400) % 4;  // 0..3 arcs lit, wrapping: "broadcasting"
+  it.filled_circle(cx, cy, 2, ON);
+  for (int i = 0; i < 3; i++) {
+    if (i >= lit) break;
+    const int r = 6 + i * 5;
+    for (int a = 0; a <= 40; a++) {  // upper arc, 45..135 degrees
+      const float t = (45.0f + a * 2.25f) * 0.0174533f;
+      it.draw_pixel_at(cx + (int) std::lround(r * std::cos(t)), cy - (int) std::lround(r * std::sin(t)), ON);
+    }
+  }
+  if (tag && *tag) {
+    int len = 0;
+    while (tag[len]) len++;
+    text3x5(it, (72 - len * 8 + 2) / 2, 28, tag, 2);
+  }
+}
+
+// Network info screen: dotted IPv4 at 2x, wrapped at a dot so each row fits in 72 px (9 glyphs).
+inline void info_screen(Display &it, const char *ip) {
+  if (!ip || !*ip) return;
+  char row[2][12] = {{0}, {0}};
+  int len = 0;
+  while (ip[len]) len++;
+  int split = len;
+  if (len > 9) {
+    split = 0;
+    for (int i = 0; i < len && i < 9; i++)
+      if (ip[i] == '.') split = i + 1;
+    if (split == 0) split = 9;
+  }
+  for (int i = 0; i < split && i < 11; i++) row[0][i] = ip[i];
+  for (int i = split; i < len && i - split < 11; i++) row[1][i - split] = ip[i];
+  text3x5(it, 2, 6, row[0], 2);
+  text3x5(it, 2, 22, row[1], 2);
+}
+
 inline void test_pattern(Display &it) {
   it.rectangle(0, 0, 72, 40, ON);                // window border
   it.filled_rectangle(0, 0, 4, 4, ON);           // corner blocks (all four must be visible)
@@ -160,10 +234,18 @@ inline void draw(Display &it, const UiState &s) {
     ota_screen(it, s.ota_pct, s.now_ms);
     return;
   }
+  if (s.setup_ap) {
+    setup_screen(it, s.tag, s.now_ms);
+    return;
+  }
+  if (s.show_info) {
+    info_screen(it, s.ip);
+    return;
+  }
   bt_icon(it, 4, 4, s.bt, s.now_ms);
   mouse_icon(it, 29, 4, s.enabled, s.pulse, s.now_ms);
   wifi_icon(it, 53, 3, s.wifi_bars);
-  ha_icon(it, 56, 19, s.api_up);
+  if (!s.standalone) ha_icon(it, 56, 19, s.api_up);
   if (s.progress >= 0.0f) progress_bar(it, s.progress);
 }
 

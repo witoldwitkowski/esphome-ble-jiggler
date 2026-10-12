@@ -302,6 +302,9 @@ void BLEHIDMouse::gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t 
     esp_ble_gap_set_security_param(ESP_BLE_SM_SET_INIT_KEY, &keys, sizeof(keys));
     esp_ble_gap_set_security_param(ESP_BLE_SM_SET_RSP_KEY, &keys, sizeof(keys));
     esp_ble_gap_config_local_icon(ESP_BLE_APPEARANCE_HID_MOUSE);  // 0x03C2
+    // Keep the GAP "Device Name" characteristic in step with the advertised name (it can be
+    // changed at runtime by a portal component).
+    esp_ble_gap_set_device_name(this->device_name_.c_str());
 
     this->refresh_bond_state_();
     ESP_LOGI(TAG, "GATTS registered (if=%u), %s", gatts_if, this->has_bond_ ? "bond present" : "no bond");
