@@ -466,6 +466,7 @@ output:
     pin:
       number: ${pin_led}
       inverted: ${led_inverted}
+      ignore_strapping_warning: true   # GPIO8 is a strapping pin; fine as a post-boot LED output
 
 interval:
   # Optional heartbeat blip (off unless the HA switch is on). Non-blocking.
