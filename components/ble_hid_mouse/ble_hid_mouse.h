@@ -7,6 +7,7 @@
 #include "esphome/components/esp32_ble/ble.h"
 #include "esphome/components/display/display.h"
 #include "jiggler_ui.h"  // icon drawing used by the YAML display lambda
+#include "sleep_macro_plan.h"
 
 #ifdef USE_ESP32
 
@@ -55,7 +56,7 @@ class BLEHIDMouse : public Component {
   void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
 
   // ---- pairing / bonding ----
-  void start_pairing();
+  void start_pairing();  // also ends quiet mode
   void stop_pairing();
   void forget_host();
   bool pairing_active() const { return this->pairing_active_; }
@@ -82,6 +83,30 @@ class BLEHIDMouse : public Component {
   uint32_t jiggle_count() const { return this->jiggle_count_; }
   uint32_t ms_since_jiggle() const;
   bool jiggling() const { return this->jiggle_phase_ != JigglePhase::IDLE; }
+
+  // ---- quiet mode: no advertising, no reconnect, until the jiggler is enabled or pairing starts ----
+  void set_quiet(bool q);
+  bool quiet() const { return this->quiet_; }
+
+  // ---- sleep macro (UNVERIFIED on hardware; see README) ----
+  MacroParams &macro_params() { return this->macro_p_; }
+  /// Start the macro or a calibration test. Returns false (and sets the status) if refused.
+  bool macro_start(MacroMode mode);
+  void macro_cancel();
+  bool macro_running() const { return this->macro_active_; }
+  uint8_t macro_stage() const { return this->macro_active_ ? this->macro_stage_ : 0; }
+  const std::string &macro_status() const { return this->macro_status_; }
+  /// Incremented every time a run ends (any outcome). Poll it to react to completion.
+  uint32_t macro_run_seq() const { return this->macro_seq_; }
+  /// The last finished run was a full, non-dry run that saw the Mac go to sleep.
+  bool macro_last_slept() const { return this->macro_slept_; }
+  /// The last finished run was a full, non-dry run (any outcome).
+  bool macro_last_was_live_full() const { return this->macro_live_full_; }
+  /// 0 none, 1 success, 2 failure: the OLED result icon, for a few seconds after a run.
+  uint8_t macro_result_icon() const;
+  void macro_ack() { this->macro_result_ = 0; }
+  /// Negotiated connection interval in ms (0 = unknown).
+  float conn_interval_ms() const { return this->conn_x125_ * 1.25f; }
 
  protected:
   // GATT table construction (sequential, one request per completion event).
@@ -110,7 +135,7 @@ class BLEHIDMouse : public Component {
   void remove_all_bonds_();
 
   // Reports.
-  bool send_report_(int8_t dx, int8_t dy);
+  bool send_report_(int8_t dx, int8_t dy, uint8_t buttons = 0);  // only the macro passes buttons
 
   // Jiggle engine.
   void schedule_next_();
@@ -197,6 +222,40 @@ class BLEHIDMouse : public Component {
   bool pub_pairing_{false};
 
   CallbackManager<void()> jiggle_callbacks_;
+
+  // Quiet mode.
+  bool quiet_{false};
+
+  // Sleep macro (implemented in sleep_macro.cpp).
+  enum class MacroPhase : uint8_t { IDLE = 0, PREP, RUN, CONFIRM };
+  void macro_set_status_(const char *s);
+  void macro_prep_();
+  void macro_next_();
+  void macro_confirm_poll_();
+  void macro_finish_(bool ok, const char *status, bool live_full, bool slept = false);
+  void macro_release_();
+  void macro_request_conn_(bool fast);
+  uint16_t macro_read_conn_();
+  void macro_on_disconnect_();
+  MacroParams macro_p_;
+  MacroPlanner macro_plan_;
+  MacroMode macro_mode_{MacroMode::FULL};
+  MacroPhase macro_phase_{MacroPhase::IDLE};
+  bool macro_active_{false};
+  bool macro_button_down_{false};
+  bool macro_slept_{false};
+  bool macro_live_full_{false};
+  uint8_t macro_stage_{0};
+  uint8_t macro_result_{0};
+  uint32_t macro_result_ms_{0};
+  uint32_t macro_seq_{0};
+  uint32_t macro_prep_ms_{0};
+  uint32_t macro_confirm_ms_{0};
+  uint32_t macro_confirm_timeout_ms_{0};
+  uint32_t macro_last_full_end_ms_{0};
+  bool macro_have_last_full_{false};
+  uint16_t conn_x125_{0};
+  std::string macro_status_{"idle"};
 };
 
 class JiggleTrigger : public Trigger<> {

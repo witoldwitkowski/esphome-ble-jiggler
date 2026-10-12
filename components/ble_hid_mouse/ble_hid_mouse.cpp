@@ -383,6 +383,7 @@ void BLEHIDMouse::gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t 
       this->adv_state_ = AdvState::IDLE;
       this->adv_target_ = AdvMode::NONE;
       this->abort_jiggle_();
+      this->macro_on_disconnect_();
       break;
 
     case ESP_GATTS_WRITE_EVT:
@@ -539,6 +540,8 @@ void BLEHIDMouse::gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb
 AdvMode BLEHIDMouse::desired_adv_mode_() const {
   if (!this->gatt_ready_ || this->connected_)
     return AdvMode::NONE;
+  if (this->quiet_)
+    return AdvMode::NONE;  // after a confirmed Mac sleep: stay silent so we cannot wake it
   if (this->pairing_active_)
     return AdvMode::PAIRING;
   if (this->has_bond_) {
@@ -603,6 +606,7 @@ void BLEHIDMouse::start_pairing() {
     ESP_LOGW(TAG, "start_pairing ignored: GATT not ready");
     return;
   }
+  this->quiet_ = false;
   this->pairing_active_ = true;
   this->pairing_until_ms_ = millis() + this->pairing_timeout_ms_;
   ESP_LOGI(TAG, "Pairing mode ON for %us", (unsigned) (this->pairing_timeout_ms_ / 1000));
@@ -644,11 +648,11 @@ uint32_t BLEHIDMouse::seconds_since_disconnect() const {
 // ---------------------------------------------------------------------------------------------
 // HID reports
 // ---------------------------------------------------------------------------------------------
-bool BLEHIDMouse::send_report_(int8_t dx, int8_t dy) {
+bool BLEHIDMouse::send_report_(int8_t dx, int8_t dy, uint8_t buttons) {
   if (!this->is_ready() || this->input_handle_ == 0) {
     return false;
   }
-  uint8_t report[4] = {0x00, (uint8_t) dx, (uint8_t) dy, 0x00};  // buttons never pressed, wheel 0
+  uint8_t report[4] = {(uint8_t) (buttons & 0x07), (uint8_t) dx, (uint8_t) dy, 0x00};  // wheel always 0
   esp_err_t err =
       esp_ble_gatts_send_indicate(this->gatts_if_, this->conn_id_, this->input_handle_, sizeof(report), report, false);
   if (err != ESP_OK) {
@@ -714,6 +718,10 @@ void BLEHIDMouse::set_enabled(bool enabled) {
   if (enabled == this->enabled_ && (!enabled || this->timer_pending_))
     return;
   this->enabled_ = enabled;
+  if (enabled && this->quiet_) {
+    ESP_LOGI(TAG, "Quiet mode ended (jiggler enabled)");
+    this->quiet_ = false;
+  }
   ESP_LOGI(TAG, "Jiggler %s", enabled ? "enabled" : "disabled");
   if (enabled) {
     this->schedule_next_();
@@ -739,7 +747,9 @@ void BLEHIDMouse::on_timer_() {
   this->timer_pending_ = false;
   if (!this->enabled_)
     return;
-  if (this->is_ready()) {
+  if (this->macro_active_) {
+    ESP_LOGD(TAG, "Jiggle skipped: sleep macro running");
+  } else if (this->is_ready()) {
     this->start_jiggle_();
   } else {
     ESP_LOGD(TAG, "Jiggle skipped: host not connected/subscribed");
@@ -748,8 +758,9 @@ void BLEHIDMouse::on_timer_() {
 }
 
 bool BLEHIDMouse::jiggle_now() {
-  if (!this->is_ready() || this->jiggling()) {
-    ESP_LOGW(TAG, "Jiggle now ignored (%s)", this->jiggling() ? "already jiggling" : "host not ready");
+  if (!this->is_ready() || this->jiggling() || this->macro_active_) {
+    ESP_LOGW(TAG, "Jiggle now ignored (%s)",
+             this->macro_active_ ? "sleep macro running" : this->jiggling() ? "already jiggling" : "host not ready");
     return false;
   }
   this->start_jiggle_();

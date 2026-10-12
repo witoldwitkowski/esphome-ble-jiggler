@@ -1,27 +1,76 @@
 # Paste into a dashboard: Edit dashboard -> Add card -> Manual.
-type: entities
-title: BLE Jiggler
-show_header_toggle: false
-entities:
-  - entity: switch.ble_jiggler_jiggler_enabled
-  - entity: binary_sensor.ble_jiggler_bluetooth_connected
-  - entity: binary_sensor.ble_jiggler_bluetooth_link
-  - entity: sensor.ble_jiggler_next_jiggle_in
-  - entity: sensor.ble_jiggler_last_jiggle
-  - entity: sensor.ble_jiggler_jiggles_since_boot
-  - entity: sensor.ble_jiggler_time_since_ble_disconnect
-  - type: divider
-  - entity: button.ble_jiggler_jiggle_now
-  - entity: button.ble_jiggler_start_pairing_mode
-  - entity: binary_sensor.ble_jiggler_pairing_mode_active
-  - entity: binary_sensor.ble_jiggler_paired_host_present
-  - type: divider
-  - entity: number.ble_jiggler_min_interval
-  - entity: number.ble_jiggler_max_interval
-  - entity: number.ble_jiggler_amplitude
-  - entity: switch.ble_jiggler_display_on
-  - entity: number.ble_jiggler_display_timeout
-  - entity: button.ble_jiggler_forget_paired_host
-  - entity: switch.ble_jiggler_nightly_reboot
-  - entity: sensor.ble_jiggler_free_heap
-  - entity: button.ble_jiggler_restart
+type: vertical-stack
+cards:
+  - type: entities
+    title: BLE Jiggler
+    show_header_toggle: false
+    entities:
+      - entity: switch.ble_jiggler_jiggler_enabled
+      - entity: binary_sensor.ble_jiggler_bluetooth_connected
+      - entity: binary_sensor.ble_jiggler_bluetooth_link
+      - entity: sensor.ble_jiggler_next_jiggle_in
+      - entity: sensor.ble_jiggler_last_jiggle
+      - entity: sensor.ble_jiggler_jiggles_since_boot
+      - entity: sensor.ble_jiggler_time_since_ble_disconnect
+      - type: divider
+      - entity: button.ble_jiggler_jiggle_now
+      - entity: button.ble_jiggler_start_pairing_mode
+      - entity: binary_sensor.ble_jiggler_pairing_mode_active
+      - entity: binary_sensor.ble_jiggler_paired_host_present
+      - type: divider
+      - entity: number.ble_jiggler_min_interval
+      - entity: number.ble_jiggler_max_interval
+      - entity: number.ble_jiggler_amplitude
+      - entity: switch.ble_jiggler_display_on
+      - entity: number.ble_jiggler_display_timeout
+      - entity: button.ble_jiggler_forget_paired_host
+      - entity: switch.ble_jiggler_nightly_reboot
+      - entity: sensor.ble_jiggler_free_heap
+      - entity: button.ble_jiggler_restart
+
+  - type: entities
+    title: Sleep macro
+    show_header_toggle: false
+    entities:
+      - entity: button.ble_jiggler_put_mac_to_sleep
+      - entity: button.ble_jiggler_cancel_macro
+      - entity: sensor.ble_jiggler_sleep_macro_status
+      - entity: binary_sensor.ble_jiggler_sleep_macro_running
+      - entity: sensor.ble_jiggler_last_sleep_macro
+      - type: divider
+      - entity: switch.ble_jiggler_sleep_macro_dry_run
+      - entity: select.ble_jiggler_target_macos
+      - entity: select.ble_jiggler_menu_corner
+      - entity: number.ble_jiggler_drift_scale
+      - entity: switch.ble_jiggler_disable_jiggler_after_sleep_macro
+      - entity: switch.ble_jiggler_quiet_after_sleep
+
+  # Second card: calibration. Wrap it in a fold-entity-row or a conditional card if you want it
+  # collapsed; it is plain here so it works without custom cards.
+  - type: entities
+    title: Sleep macro calibration (preset values are unverified starting points)
+    show_header_toggle: false
+    entities:
+      - entity: button.ble_jiggler_macro_test_1_go_to_corner
+      - entity: button.ble_jiggler_macro_test_2_go_to_apple_logo
+      - entity: button.ble_jiggler_macro_test_3_open_apple_menu
+      - entity: button.ble_jiggler_macro_test_4_hover_sleep
+      - type: divider
+      - entity: number.ble_jiggler_apple_logo_x_counts
+      - entity: number.ble_jiggler_apple_logo_y_counts
+      - entity: number.ble_jiggler_sleep_row_y_counts
+      - entity: number.ble_jiggler_sleep_row_x_adjust_counts
+      - type: divider
+      - entity: number.ble_jiggler_slam_report_count
+      - entity: number.ble_jiggler_slam_counts_per_report
+      - entity: number.ble_jiggler_slam_interval_ms
+      - entity: number.ble_jiggler_slam_settle_time_ms
+      - entity: number.ble_jiggler_slam_repeat_passes
+      - entity: number.ble_jiggler_drift_counts_per_step
+      - entity: number.ble_jiggler_drift_step_interval_ms
+      - entity: number.ble_jiggler_dwell_before_click_ms
+      - entity: number.ble_jiggler_click_hold_ms
+      - entity: number.ble_jiggler_menu_open_dwell_ms
+      - entity: number.ble_jiggler_hover_dwell_ms
+      - entity: number.ble_jiggler_sleep_confirmation_timeout_s
+      - entity: number.ble_jiggler_macro_cooldown_s
