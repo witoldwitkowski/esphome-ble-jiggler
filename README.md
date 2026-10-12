@@ -45,9 +45,9 @@ Other choices:
 
 **Prerequisites:** either the Home Assistant **ESPHome Device Builder** add-on, or `pip install esphome` (2026.9 or newer; the component uses APIs of that release).
 
-**Option A: UI only, no file copying (recommended).** Publish this folder as a GitHub repo (public is simplest), then in `jiggler.yaml` swap the `external_components` block for `source: github://witoldwitkowski/esphome-ble-jiggler@main` (the commented lines are there). In HA open **ESPHome Device Builder → + New Device → Skip** (or any name), then **Edit**, paste the contents of `jiggler.yaml`, and add the four keys from `secrets.example.yaml` via the **Secrets** button (top right). Nothing else to copy; ESPHome downloads the component itself.
+**Option A: UI only, no file copying (recommended).** The component is published at <https://github.com/witoldwitkowski/esphome-ble-jiggler>, and `jiggler.yaml` already fetches it from there. In HA open **ESPHome Device Builder → + New Device → Skip** (or any name), then **Edit**, paste the contents of `jiggler.yaml`, and add the four keys from `secrets.example.yaml` via the **Secrets** button (top right). Nothing else to copy; ESPHome downloads the component itself.
 
-**Option B: local files.** Copy `jiggler.yaml` and `components/` into the ESPHome config folder (`/config/esphome/`; Samba, SSH or File editor add-ons work), and create `secrets.yaml` from `secrets.example.yaml`.
+**Option B: local files.** In `jiggler.yaml` switch `external_components` to the commented-out local block, then copy `jiggler.yaml` and `components/` into the ESPHome config folder (`/config/esphome/`; Samba, SSH or File editor add-ons work), and create `secrets.yaml` from `secrets.example.yaml`.
 
 Generate the API key with `openssl rand -base64 32` (or any 32-byte base64 value).
 

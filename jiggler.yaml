@@ -136,13 +136,14 @@ esp32_ble:
   io_capability: none    # "Just Works" pairing, like a real mouse
 
 external_components:
-  # Local copy (components/ next to this file). To avoid copying any files, replace with:
-  #   - source: github://witoldwitkowski/esphome-ble-jiggler@main
-  #     components: [ble_hid_mouse]
-  - source:
-      type: local
-      path: components
+  # Fetched by ESPHome from GitHub, so you only need to paste this one file.
+  - source: github://witoldwitkowski/esphome-ble-jiggler@main
     components: [ble_hid_mouse]
+  # For local development instead (components/ next to this file), use:
+  #   - source:
+  #       type: local
+  #       path: components
+  #     components: [ble_hid_mouse]
 
 ble_hid_mouse:
   id: mouse
