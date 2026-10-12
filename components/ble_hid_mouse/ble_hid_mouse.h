@@ -32,11 +32,9 @@ class BLEHIDMouse : public Component {
  public:
   // ---- configuration (codegen) ----
   void set_parent(esp32_ble::ESP32BLE *parent) { this->parent_ = parent; }
-  // Identity setters must run before this component's setup() (the GATT table points at these strings).
   void set_device_name(const std::string &name) { this->device_name_ = name; }
   void set_manufacturer(const std::string &s) { this->manufacturer_ = s; }
   void set_model(const std::string &s) { this->model_ = s; }
-  const std::string &get_device_name() const { return this->device_name_; }
   void set_pnp_id(uint8_t source, uint16_t vid, uint16_t pid, uint16_t version);
   void set_pairing_timeout_ms(uint32_t ms) { this->pairing_timeout_ms_ = ms; }
   void set_battery_level(uint8_t level) { this->battery_level_ = level; }
@@ -60,8 +58,6 @@ class BLEHIDMouse : public Component {
   void start_pairing();
   void stop_pairing();
   void forget_host();
-  /// Remove every stored bond without starting pairing mode.
-  void clear_bonds() { this->remove_all_bonds_(); }
   bool pairing_active() const { return this->pairing_active_; }
   bool has_bond() const { return this->has_bond_; }
   uint32_t pairing_remaining_s() const;
