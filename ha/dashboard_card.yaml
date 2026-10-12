@@ -1,0 +1,27 @@
+# Paste into a dashboard: Edit dashboard -> Add card -> Manual.
+type: entities
+title: BLE Jiggler
+show_header_toggle: false
+entities:
+  - entity: switch.ble_jiggler_jiggler_enabled
+  - entity: binary_sensor.ble_jiggler_bluetooth_connected
+  - entity: binary_sensor.ble_jiggler_bluetooth_link
+  - entity: sensor.ble_jiggler_next_jiggle_in
+  - entity: sensor.ble_jiggler_last_jiggle
+  - entity: sensor.ble_jiggler_jiggles_since_boot
+  - entity: sensor.ble_jiggler_time_since_ble_disconnect
+  - type: divider
+  - entity: button.ble_jiggler_jiggle_now
+  - entity: button.ble_jiggler_start_pairing_mode
+  - entity: binary_sensor.ble_jiggler_pairing_mode_active
+  - entity: binary_sensor.ble_jiggler_paired_host_present
+  - type: divider
+  - entity: number.ble_jiggler_min_interval
+  - entity: number.ble_jiggler_max_interval
+  - entity: number.ble_jiggler_amplitude
+  - entity: switch.ble_jiggler_display_on
+  - entity: number.ble_jiggler_display_timeout
+  - entity: button.ble_jiggler_forget_paired_host
+  - entity: switch.ble_jiggler_nightly_reboot
+  - entity: sensor.ble_jiggler_free_heap
+  - entity: button.ble_jiggler_restart

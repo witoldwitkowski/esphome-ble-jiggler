@@ -1,0 +1,11 @@
+# Restart the jiggler from Home Assistant on a schedule (alternative to the on-device
+# "Nightly reboot" switch). It reconnects to the Mac by itself within seconds.
+alias: "BLE Jiggler: nightly restart"
+mode: single
+triggers:
+  - trigger: time
+    at: "04:00:00"
+actions:
+  - action: button.press
+    target:
+      entity_id: button.ble_jiggler_restart

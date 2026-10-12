@@ -1,0 +1,23 @@
+# Notify when the jiggler is switched on but its Bluetooth link has been down for 5+ minutes.
+# Entity IDs assume the device name "BLE Jiggler"; adjust if HA named them differently
+# (Settings -> Devices & Services -> ESPHome -> BLE Jiggler).
+alias: "BLE Jiggler: Bluetooth lost while enabled"
+description: "Alert if the jiggler is enabled but not connected to the Mac for 5 minutes."
+mode: single
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.ble_jiggler_bluetooth_connected
+    to: "off"
+    for: "00:05:00"
+conditions:
+  - condition: state
+    entity_id: switch.ble_jiggler_jiggler_enabled
+    state: "on"
+actions:
+  - action: notify.notify   # or notify.mobile_app_<your_phone>
+    data:
+      title: "Jiggler disconnected"
+      message: >-
+        The BLE Jiggler is enabled but has not been connected to the Mac for
+        {{ (states('sensor.ble_jiggler_time_since_ble_disconnect') | int(0) / 60) | round(0) }}
+        minutes. The Mac may be asleep or out of range, or it may need re-pairing.

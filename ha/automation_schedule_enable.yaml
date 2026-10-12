@@ -1,0 +1,30 @@
+# Turn the jiggler on/off from a Schedule helper.
+# 1. Settings -> Devices & Services -> Helpers -> Create helper -> Schedule
+#    Name it "Jiggler hours" (entity: schedule.jiggler_hours) and add your work hours.
+# 2. Add this automation.
+alias: "BLE Jiggler: follow schedule"
+description: "Enable the jiggler while the schedule is on; disable it otherwise."
+mode: restart
+triggers:
+  - trigger: state
+    entity_id: schedule.jiggler_hours
+  - trigger: homeassistant
+    event: start
+  - trigger: state            # re-assert after the device returns (reboot/OTA)
+    entity_id: switch.ble_jiggler_jiggler_enabled
+    from: "unavailable"
+actions:
+  - delay: "00:00:05"
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: schedule.jiggler_hours
+            state: "on"
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: switch.ble_jiggler_jiggler_enabled
+    default:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.ble_jiggler_jiggler_enabled

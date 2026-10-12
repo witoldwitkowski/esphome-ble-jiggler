@@ -1,0 +1,556 @@
+# =============================================================================
+# BLE mouse jiggler: ESP32-C3 + 0.42" OLED, controlled from Home Assistant.
+# Pairs with a Mac (or any host) as a standard Bluetooth LE HID mouse.
+# See README.md for install, pairing and troubleshooting.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Everything you might want to change lives here.
+# -----------------------------------------------------------------------------
+substitutions:
+  devicename: ble-jiggler
+  friendly_name: "BLE Jiggler"
+
+  # --- Bluetooth identity (what the host sees) -------------------------------
+  # Name shown in macOS Bluetooth settings. Max 20 characters.
+  ble_name: "MX Anywhere 3"
+  ble_manufacturer: "Logitech"
+  ble_model: "MX Anywhere 3"
+  # PnP ID: source "usb" = USB-IF vendor id (0x046D is Logitech), or "bluetooth".
+  ble_vid_source: usb
+  ble_vid: "0x046D"
+  ble_pid: "0xB025"
+  ble_version: "0x0001"
+  pairing_timeout: 120s
+
+  # --- Jiggle defaults (used on first boot; HA changes persist afterwards) ---
+  default_min_interval: "120"   # seconds, 10-3600
+  default_max_interval: "180"   # seconds, 10-3600
+  default_amplitude: "2"        # pixels, 1-5
+  default_display_timeout: "60" # seconds before dimming, 0 = never
+  nightly_reboot_hour: "4"      # local time (from HA), used when "Nightly reboot" is on
+  nightly_reboot_minute: "0"
+
+  # --- Board pins (UNVERIFIED for your board: run the I2C scan first) --------
+  pin_sda: GPIO5
+  pin_scl: GPIO6
+  pin_led: GPIO8
+  led_inverted: "true"
+  pin_button: GPIO9
+  i2c_address: "0x3C"
+
+  # --- Display (72x40 window inside a 128x64 SSD1306 RAM) ---------------------
+  oled_model: "SSD1306 72x40"
+  oled_offset_x: "0"
+  oled_offset_y: "0"
+  oled_flip_x: "true"
+  oled_flip_y: "true"
+  # Set to "true" to draw a corner/border test pattern instead of the UI.
+  oled_test_pattern: "false"
+
+esphome:
+  name: ${devicename}
+  friendly_name: ${friendly_name}
+  min_version: "2026.9.0"
+  # Late in boot: push the restored HA settings into the jiggle engine.
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          if (!std::isnan(id(min_interval).state)) id(mouse)->set_min_interval_s(id(min_interval).state);
+          if (!std::isnan(id(max_interval).state)) id(mouse)->set_max_interval_s(id(max_interval).state);
+          if (!std::isnan(id(amplitude).state)) id(mouse)->set_amplitude((uint8_t) id(amplitude).state);
+          id(mouse)->set_enabled(id(jiggler_enabled).state);
+          id(last_activity_ms) = millis();
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+# Flash writes for restore_value settings are rate-limited by ESPHome (default 1 min).
+preferences:
+  flash_write_interval: 5min
+
+# Native USB Serial/JTAG on the C3 (flashing + logs only; it cannot be a USB HID device).
+logger:
+  level: INFO
+  hardware_uart: USB_SERIAL_JTAG
+  logs:
+    esp32_ble: WARN
+
+# --- Network: no fallback AP, no captive portal; never reboot for lack of Wi-Fi/HA ---
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Modem sleep keeps the single radio fair to Bluetooth (see README troubleshooting).
+  power_save_mode: light
+  reboot_timeout: 0s
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+    on_begin:
+      - lambda: |-
+          id(ota_active) = true;
+          id(ota_percent) = 0;
+          id(last_activity_ms) = millis();
+    on_progress:
+      - lambda: |-
+          id(ota_percent) = x;
+    on_end:
+      - lambda: |-
+          id(ota_active) = false;
+    on_error:
+      - lambda: |-
+          id(ota_active) = false;
+
+time:
+  - platform: homeassistant
+    id: ha_time
+    on_time:
+      # Optional housekeeping reboot. Needs HA time sync; skipped while a jiggle is mid-flight.
+      - seconds: 0
+        minutes: ${nightly_reboot_minute}
+        hours: ${nightly_reboot_hour}
+        then:
+          - if:
+              condition:
+                and:
+                  - switch.is_on: nightly_reboot
+                  - lambda: 'return !id(mouse)->jiggling() && !id(ota_active);'
+              then:
+                - logger.log: "Nightly reboot"
+                - button.press: restart_button
+
+# -----------------------------------------------------------------------------
+# Bluetooth: ESPHome's own BLE stack (Bluedroid) hosts our custom HID component.
+# -----------------------------------------------------------------------------
+esp32_ble:
+  name: ${ble_name}
+  io_capability: none    # "Just Works" pairing, like a real mouse
+
+external_components:
+  # Local copy (components/ next to this file). To avoid copying any files, replace with:
+  #   - source: github://witoldwitkowski/esphome-ble-jiggler@main
+  #     components: [ble_hid_mouse]
+  - source:
+      type: local
+      path: components
+    components: [ble_hid_mouse]
+
+ble_hid_mouse:
+  id: mouse
+  manufacturer: ${ble_manufacturer}
+  model: ${ble_model}
+  vendor_id_source: ${ble_vid_source}
+  vendor_id: ${ble_vid}
+  product_id: ${ble_pid}
+  product_version: ${ble_version}
+  pairing_timeout: ${pairing_timeout}
+  connected:
+    name: "Bluetooth connected"
+    id: bt_connected
+  link:
+    name: "Bluetooth link"        # raw link up, even before the host subscribes
+    entity_category: diagnostic
+  bonded:
+    name: "Paired host present"
+    entity_category: diagnostic
+  pairing:
+    name: "Pairing mode active"
+    entity_category: diagnostic
+  on_jiggle:
+    - lambda: |-
+        id(last_activity_ms) = millis();
+    - sensor.template.publish:
+        id: jiggle_count_sensor
+        state: !lambda "return id(mouse)->jiggle_count();"
+    - sensor.template.publish:
+        id: last_jiggle_sensor
+        state: !lambda "return (float) id(ha_time).timestamp_now();"
+
+# -----------------------------------------------------------------------------
+# Persistent runtime state
+# -----------------------------------------------------------------------------
+globals:
+  - id: ota_active
+    type: bool
+    initial_value: "false"
+  - id: ota_percent
+    type: float
+    initial_value: "0"
+  - id: last_activity_ms
+    type: uint32_t
+    initial_value: "0"
+  - id: last_sig
+    type: uint32_t
+    initial_value: "0"
+  - id: oled_dimmed
+    type: bool
+    initial_value: "false"
+  - id: oled_off
+    type: bool
+    initial_value: "false"
+
+# -----------------------------------------------------------------------------
+# Controls
+# -----------------------------------------------------------------------------
+switch:
+  - platform: template
+    name: "Jiggler enabled"
+    id: jiggler_enabled
+    icon: mdi:mouse-move-vertical
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+    turn_on_action:
+      - lambda: |-
+          id(mouse)->set_enabled(true);
+          id(last_activity_ms) = millis();
+    turn_off_action:
+      - lambda: |-
+          id(mouse)->set_enabled(false);
+          id(last_activity_ms) = millis();
+
+  - platform: template
+    name: "Display on"
+    id: display_on
+    icon: mdi:monitor
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+    turn_on_action:
+      - lambda: |-
+          id(last_activity_ms) = millis();
+    turn_off_action:
+      - lambda: |-
+          id(last_activity_ms) = millis();
+
+  - platform: template
+    name: "Nightly reboot"
+    id: nightly_reboot
+    icon: mdi:restart-alert
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+  - platform: template
+    name: "Status LED heartbeat"
+    id: led_heartbeat
+    icon: mdi:led-on
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+number:
+  - platform: template
+    name: "Min interval"
+    id: min_interval
+    icon: mdi:timer-sand
+    entity_category: config
+    unit_of_measurement: s
+    min_value: 10
+    max_value: 3600
+    step: 5
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: ${default_min_interval}
+    set_action:
+      - lambda: |-
+          id(mouse)->set_min_interval_s(x);
+
+  - platform: template
+    name: "Max interval"
+    id: max_interval
+    icon: mdi:timer-sand
+    entity_category: config
+    unit_of_measurement: s
+    min_value: 10
+    max_value: 3600
+    step: 5
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: ${default_max_interval}
+    set_action:
+      - lambda: |-
+          id(mouse)->set_max_interval_s(x);
+
+  - platform: template
+    name: "Amplitude"
+    id: amplitude
+    icon: mdi:arrow-expand-all
+    entity_category: config
+    unit_of_measurement: px
+    min_value: 1
+    max_value: 5
+    step: 1
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: ${default_amplitude}
+    set_action:
+      - lambda: |-
+          id(mouse)->set_amplitude((uint8_t) x);
+
+  - platform: template
+    name: "Display timeout"
+    id: display_timeout
+    icon: mdi:monitor-off
+    entity_category: config
+    unit_of_measurement: s
+    min_value: 0
+    max_value: 3600
+    step: 5
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: ${default_display_timeout}
+
+button:
+  - platform: template
+    name: "Jiggle now"
+    icon: mdi:mouse
+    on_press:
+      - lambda: |-
+          id(mouse)->jiggle_now();
+  - platform: template
+    name: "Start pairing mode"
+    icon: mdi:bluetooth-connect
+    on_press:
+      - lambda: |-
+          id(mouse)->start_pairing();
+          id(last_activity_ms) = millis();
+  - platform: template
+    name: "Forget paired host"
+    icon: mdi:bluetooth-off
+    entity_category: config
+    on_press:
+      - lambda: |-
+          id(mouse)->forget_host();
+          id(last_activity_ms) = millis();
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    entity_category: config
+
+# -----------------------------------------------------------------------------
+# Status
+# -----------------------------------------------------------------------------
+sensor:
+  - platform: template
+    name: "Next jiggle in"
+    id: next_jiggle_sensor
+    icon: mdi:timer-outline
+    unit_of_measurement: s
+    accuracy_decimals: 0
+    update_interval: 1s
+    lambda: |-
+      int32_t s = id(mouse)->next_jiggle_in_s();
+      if (s < 0) return NAN;
+      return (float) s;
+    filters:
+      - delta: 0.5   # publish only when the value actually changed
+
+  - platform: template
+    name: "Last jiggle"
+    id: last_jiggle_sensor
+    device_class: timestamp
+    icon: mdi:history
+
+  - platform: template
+    name: "Jiggles since boot"
+    id: jiggle_count_sensor
+    icon: mdi:counter
+    state_class: total_increasing
+    accuracy_decimals: 0
+    lambda: |-
+      return 0.0f;
+    update_interval: never
+
+  - platform: template
+    name: "Time since BLE disconnect"
+    id: since_disconnect_sensor
+    icon: mdi:bluetooth-off
+    unit_of_measurement: s
+    accuracy_decimals: 0
+    update_interval: 5s
+    lambda: |-
+      return (float) id(mouse)->seconds_since_disconnect();
+    filters:
+      - delta: 0.5
+
+  - platform: wifi_signal
+    name: "Wi-Fi signal"
+    id: wifi_rssi
+    update_interval: 30s
+    entity_category: diagnostic
+  - platform: uptime
+    name: "Uptime"
+    entity_category: diagnostic
+  - platform: debug
+    free:
+      name: "Free heap"
+      entity_category: diagnostic
+    block:
+      name: "Largest free heap block"
+      entity_category: diagnostic
+
+# Heap diagnostics: watch these in HA to confirm there is no slow memory leak.
+debug:
+  update_interval: 60s
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP address"
+      entity_category: diagnostic
+  - platform: version
+    name: "ESPHome version"
+    entity_category: diagnostic
+    hide_timestamp: true
+  - platform: template
+    name: "Firmware build time"
+    entity_category: diagnostic
+    lambda: |-
+      return std::string(__DATE__ " " __TIME__);
+    update_interval: never
+
+# -----------------------------------------------------------------------------
+# Physical controls and LED
+# -----------------------------------------------------------------------------
+binary_sensor:
+  # BOOT button. GPIO9 is a strapping pin: it is only read after boot.
+  - platform: gpio
+    id: boot_button
+    pin:
+      number: ${pin_button}
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+      ignore_strapping_warning: true
+    internal: true
+    filters:
+      - delayed_on_off: 30ms
+    on_click:
+      - min_length: 50ms
+        max_length: 1500ms
+        then:
+          - switch.toggle: display_on
+      - min_length: 3s
+        max_length: 9s
+        then:
+          - logger.log: "BOOT held 3s: pairing mode"
+          - lambda: |-
+              id(mouse)->start_pairing();
+              id(last_activity_ms) = millis();
+      - min_length: 10s
+        max_length: 60s
+        then:
+          - logger.log: "BOOT held 10s: forget host + pairing mode"
+          - lambda: |-
+              id(mouse)->forget_host();
+              id(last_activity_ms) = millis();
+
+output:
+  - platform: gpio
+    id: led_out
+    pin:
+      number: ${pin_led}
+      inverted: ${led_inverted}
+
+interval:
+  # Optional heartbeat blip (off unless the HA switch is on). Non-blocking.
+  - interval: 3s
+    then:
+      - if:
+          condition:
+            switch.is_on: led_heartbeat
+          then:
+            - output.turn_on: led_out
+            - delay: 40ms
+            - output.turn_off: led_out
+  # Display power: blank when "Display on" is off, dim after the idle timeout.
+  - interval: 250ms
+    then:
+      - lambda: |-
+          const bool want_on = id(display_on).state;
+          const float to = id(display_timeout).state;
+          const bool idle = !std::isnan(to) && to > 0 &&
+                            (millis() - id(last_activity_ms)) > (uint32_t) (to * 1000.0f);
+          if (!want_on && !id(oled_off)) {
+            id(oled)->turn_off();
+            id(oled_off) = true;
+          } else if (want_on && id(oled_off)) {
+            id(oled)->turn_on();
+            id(oled_off) = false;
+            id(oled_dimmed) = false;
+            id(oled)->set_contrast(1.0f);
+          }
+          if (want_on) {
+            if (idle && !id(oled_dimmed)) {
+              id(oled)->set_contrast(0.0f);
+              id(oled_dimmed) = true;
+            } else if (!idle && id(oled_dimmed)) {
+              id(oled)->set_contrast(1.0f);
+              id(oled_dimmed) = false;
+            }
+          }
+
+# -----------------------------------------------------------------------------
+# OLED
+# -----------------------------------------------------------------------------
+i2c:
+  sda: ${pin_sda}
+  scl: ${pin_scl}
+  frequency: 400kHz
+  scan: true     # logs found device addresses at boot (bring-up step 1)
+
+display:
+  - platform: ssd1306_i2c
+    id: oled
+    model: ${oled_model}
+    address: ${i2c_address}
+    offset_x: ${oled_offset_x}
+    offset_y: ${oled_offset_y}
+    flip_x: ${oled_flip_x}
+    flip_y: ${oled_flip_y}
+    update_interval: 200ms   # 5 fps keeps I2C/CPU time low next to BLE + Wi-Fi
+    lambda: |-
+      if (!id(display_on).state) return;
+      jiggler_ui::UiState s{};
+      const bool ready = id(mouse)->is_ready();
+      if (id(mouse)->pairing_active())  s.bt = jiggler_ui::BtState::PAIRING;
+      else if (ready)                   s.bt = jiggler_ui::BtState::CONNECTED;
+      else if (id(mouse)->has_bond())   s.bt = jiggler_ui::BtState::BONDED_IDLE;
+      else                              s.bt = jiggler_ui::BtState::NO_BOND;
+      s.enabled = id(jiggler_enabled).state;
+      s.pulse = id(mouse)->ms_since_jiggle() < 1000;
+      const bool wifi_up = wifi::global_wifi_component->is_connected();
+      float rssi = id(wifi_rssi).state;
+      if (!wifi_up) s.wifi_bars = 0;
+      else if (std::isnan(rssi) || rssi > -55) s.wifi_bars = 4;
+      else if (rssi > -65) s.wifi_bars = 3;
+      else if (rssi > -75) s.wifi_bars = 2;
+      else s.wifi_bars = 1;
+      s.api_up = api::global_api_server->is_connected();
+      s.progress = (s.enabled && ready) ? id(mouse)->interval_progress() : -1.0f;
+      s.ota = id(ota_active);
+      s.ota_pct = id(ota_percent);
+      s.now_ms = millis();
+      s.test_pattern = ${oled_test_pattern};
+      // Any state change wakes the display from dimming.
+      uint32_t sig = (ready ? 1 : 0) | (id(mouse)->has_bond() ? 2 : 0) | (id(mouse)->pairing_active() ? 4 : 0) |
+                     (s.enabled ? 8 : 0) | (wifi_up ? 16 : 0) | (s.api_up ? 32 : 0) | (s.ota ? 64 : 0);
+      if (sig != id(last_sig)) {
+        id(last_sig) = sig;
+        id(last_activity_ms) = millis();
+      }
+      jiggler_ui::draw(it, s);
