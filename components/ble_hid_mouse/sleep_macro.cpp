@@ -76,8 +76,8 @@ uint16_t BLEHIDMouse::macro_read_conn_() {
 }
 
 bool BLEHIDMouse::macro_start(MacroMode mode) {
-  if (this->macro_active_) {
-    ESP_LOGW(TAG, "Start ignored: a macro is already running");
+  if (this->macro_active_ || this->key_active_) {
+    ESP_LOGW(TAG, "Start ignored: a macro or key sequence is already running");
     return false;
   }
   const bool full = mode == MacroMode::FULL;

@@ -33,12 +33,17 @@ static constexpr uint32_t GAP_MS_MIN = 30;
 static constexpr uint32_t GAP_MS_MAX = 120;
 
 // ---------------------------------------------------------------------------------------------
-// HID report map: standard relative mouse, 3 buttons, X, Y, wheel (4-byte input report, no ID).
+// HID report map: three top-level collections told apart by Report ID (the ID travels in the Report
+// Reference descriptor, not in the data, so every payload keeps its plain layout):
+//   ID 1 mouse     4 bytes [buttons, dx, dy, wheel]
+//   ID 2 keyboard  8 bytes [modifiers, reserved, key1..key6] in; 1 byte LEDs out
+//   ID 3 consumer  2 bytes [usage lo, usage hi]
 // ---------------------------------------------------------------------------------------------
 static const uint8_t REPORT_MAP[] = {
     0x05, 0x01,        // Usage Page (Generic Desktop)
     0x09, 0x02,        // Usage (Mouse)
     0xA1, 0x01,        // Collection (Application)
+    0x85, 0x01,        //   Report ID (1)
     0x09, 0x01,        //   Usage (Pointer)
     0xA1, 0x00,        //   Collection (Physical)
     0x05, 0x09,        //     Usage Page (Buttons)
@@ -63,11 +68,61 @@ static const uint8_t REPORT_MAP[] = {
     0x81, 0x06,        //     Input (Data, Var, Rel)
     0xC0,              //   End Collection
     0xC0,              // End Collection
+    // ---- keyboard ----
+    0x05, 0x01,        // Usage Page (Generic Desktop)
+    0x09, 0x06,        // Usage (Keyboard)
+    0xA1, 0x01,        // Collection (Application)
+    0x85, 0x02,        //   Report ID (2)
+    0x05, 0x07,        //   Usage Page (Keyboard/Keypad)
+    0x19, 0xE0,        //   Usage Minimum (Left Control)
+    0x29, 0xE7,        //   Usage Maximum (Right GUI)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x25, 0x01,        //   Logical Maximum (1)
+    0x75, 0x01,        //   Report Size (1)
+    0x95, 0x08,        //   Report Count (8)
+    0x81, 0x02,        //   Input (Data, Var, Abs): modifier bits
+    0x95, 0x01,        //   Report Count (1)
+    0x75, 0x08,        //   Report Size (8)
+    0x81, 0x01,        //   Input (Const): reserved byte
+    0x95, 0x05,        //   Report Count (5)
+    0x75, 0x01,        //   Report Size (1)
+    0x05, 0x08,        //   Usage Page (LEDs)
+    0x19, 0x01,        //   Usage Minimum (Num Lock)
+    0x29, 0x05,        //   Usage Maximum (Kana)
+    0x91, 0x02,        //   Output (Data, Var, Abs): LED bits
+    0x95, 0x01,        //   Report Count (1)
+    0x75, 0x03,        //   Report Size (3)
+    0x91, 0x01,        //   Output (Const): LED padding
+    0x95, 0x06,        //   Report Count (6)
+    0x75, 0x08,        //   Report Size (8)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x25, 0x65,        //   Logical Maximum (101)
+    0x05, 0x07,        //   Usage Page (Keyboard/Keypad)
+    0x19, 0x00,        //   Usage Minimum (0)
+    0x29, 0x65,        //   Usage Maximum (101)
+    0x81, 0x00,        //   Input (Data, Array): six key slots
+    0xC0,              // End Collection
+    // ---- consumer control ----
+    0x05, 0x0C,        // Usage Page (Consumer)
+    0x09, 0x01,        // Usage (Consumer Control)
+    0xA1, 0x01,        // Collection (Application)
+    0x85, 0x03,        //   Report ID (3)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x26, 0xFF, 0x03,  //   Logical Maximum (1023)
+    0x19, 0x00,        //   Usage Minimum (0)
+    0x2A, 0xFF, 0x03,  //   Usage Maximum (1023)
+    0x75, 0x10,        //   Report Size (16)
+    0x95, 0x01,        //   Report Count (1)
+    0x81, 0x00,        //   Input (Data, Array): one usage at a time
+    0xC0,              // End Collection
 };
 static const uint8_t HID_INFO[] = {0x11, 0x01, 0x00, 0x02};  // bcdHID 1.11, country 0, normally connectable
 static const uint8_t PROTOCOL_MODE_REPORT[] = {0x01};
 static const uint8_t CONTROL_POINT_INIT[] = {0x00};
-static const uint8_t REPORT_REFERENCE_INPUT[] = {0x00, 0x01};  // report ID 0, type Input
+static const uint8_t REPORT_REF_MOUSE_IN[] = {0x01, 0x01};     // report ID 1, type Input
+static const uint8_t REPORT_REF_KBD_IN[] = {0x02, 0x01};       // report ID 2, type Input
+static const uint8_t REPORT_REF_KBD_OUT[] = {0x02, 0x02};      // report ID 2, type Output
+static const uint8_t REPORT_REF_CONSUMER_IN[] = {0x03, 0x01};  // report ID 3, type Input
 static const uint8_t CCCD_INIT[] = {0x00, 0x00};
 
 static constexpr uint16_t UUID_DIS = 0x180A;
@@ -183,6 +238,7 @@ void BLEHIDMouse::build_steps_() {
   const uint8_t R = ESP_GATT_CHAR_PROP_BIT_READ;
   const uint8_t N = ESP_GATT_CHAR_PROP_BIT_NOTIFY;
   const uint8_t WNR = ESP_GATT_CHAR_PROP_BIT_WRITE_NR;
+  const uint8_t W = ESP_GATT_CHAR_PROP_BIT_WRITE;
 
   this->steps_.clear();
   // Device Information (open: lets the host identify us before encryption).
@@ -199,15 +255,27 @@ void BLEHIDMouse::build_steps_() {
   this->steps_.push_back(D(0x2902, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE, CCCD_INIT, 2, nullptr));
   this->steps_.push_back(E());
   // HID.
-  this->steps_.push_back(S(UUID_HID, 24));
+  this->steps_.push_back(S(UUID_HID, 40));
   this->steps_.push_back(C(0x2A4A, PERM_ENC_R, R, HID_INFO, sizeof(HID_INFO), sizeof(HID_INFO), nullptr));
   this->steps_.push_back(C(0x2A4B, PERM_ENC_R, R, REPORT_MAP, sizeof(REPORT_MAP), sizeof(REPORT_MAP), nullptr));
   this->steps_.push_back(C(0x2A4C, PERM_ENC_RW, WNR, CONTROL_POINT_INIT, 1, 1, nullptr));
   this->steps_.push_back(C(0x2A4E, PERM_ENC_RW, R | WNR, PROTOCOL_MODE_REPORT, 1, 1, nullptr));
   this->steps_.push_back(C(0x2A4D, PERM_ENC_R, R | N, this->input_init_, sizeof(this->input_init_),
                            sizeof(this->input_init_), &this->input_handle_));
-  this->steps_.push_back(D(0x2908, PERM_ENC_R, REPORT_REFERENCE_INPUT, 2, nullptr));
+  this->steps_.push_back(D(0x2908, PERM_ENC_R, REPORT_REF_MOUSE_IN, 2, nullptr));
   this->steps_.push_back(D(0x2902, PERM_ENC_RW, CCCD_INIT, 2, &this->input_cccd_handle_));
+  // Keyboard input, keyboard LED output, consumer input.
+  this->steps_.push_back(C(0x2A4D, PERM_ENC_R, R | N, this->kbd_init_, sizeof(this->kbd_init_),
+                           sizeof(this->kbd_init_), &this->kbd_handle_));
+  this->steps_.push_back(D(0x2908, PERM_ENC_R, REPORT_REF_KBD_IN, 2, nullptr));
+  this->steps_.push_back(D(0x2902, PERM_ENC_RW, CCCD_INIT, 2, &this->kbd_cccd_handle_));
+  this->steps_.push_back(C(0x2A4D, PERM_ENC_RW, R | W | WNR, this->kbd_led_, sizeof(this->kbd_led_),
+                           sizeof(this->kbd_led_), &this->kbd_led_handle_));
+  this->steps_.push_back(D(0x2908, PERM_ENC_R, REPORT_REF_KBD_OUT, 2, nullptr));
+  this->steps_.push_back(C(0x2A4D, PERM_ENC_R, R | N, this->consumer_init_, sizeof(this->consumer_init_),
+                           sizeof(this->consumer_init_), &this->consumer_handle_));
+  this->steps_.push_back(D(0x2908, PERM_ENC_R, REPORT_REF_CONSUMER_IN, 2, nullptr));
+  this->steps_.push_back(D(0x2902, PERM_ENC_RW, CCCD_INIT, 2, &this->consumer_cccd_handle_));
   this->steps_.push_back(E());
 }
 
@@ -301,7 +369,7 @@ void BLEHIDMouse::gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t 
     esp_ble_gap_set_security_param(ESP_BLE_SM_MAX_KEY_SIZE, &key_size, sizeof(key_size));
     esp_ble_gap_set_security_param(ESP_BLE_SM_SET_INIT_KEY, &keys, sizeof(keys));
     esp_ble_gap_set_security_param(ESP_BLE_SM_SET_RSP_KEY, &keys, sizeof(keys));
-    esp_ble_gap_config_local_icon(ESP_BLE_APPEARANCE_HID_MOUSE);  // 0x03C2
+    esp_ble_gap_config_local_icon(0x03C0);  // 0x03C0: mouse + keyboard + consumer
 
     this->refresh_bond_state_();
     ESP_LOGI(TAG, "GATTS registered (if=%u), %s", gatts_if, this->has_bond_ ? "bond present" : "no bond");
@@ -352,6 +420,8 @@ void BLEHIDMouse::gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t 
       this->connected_ = true;
       this->encrypted_ = false;
       this->subscribed_ = false;
+      this->kbd_subscribed_ = false;
+      this->consumer_subscribed_ = false;
       this->conn_id_ = param->connect.conn_id;
       memcpy(this->peer_, param->connect.remote_bda, sizeof(esp_bd_addr_t));
       // The stack stops advertising on connect; forget our view of it.
@@ -382,12 +452,23 @@ void BLEHIDMouse::gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t 
       this->reconnect_fast_until_ms_ = millis() + RECONNECT_FAST_WINDOW_MS;
       this->adv_state_ = AdvState::IDLE;
       this->adv_target_ = AdvMode::NONE;
+      this->kbd_subscribed_ = false;
+      this->consumer_subscribed_ = false;
       this->abort_jiggle_();
       this->macro_on_disconnect_();
+      this->key_on_disconnect_();
       break;
 
     case ESP_GATTS_WRITE_EVT:
-      if (param->write.handle == this->input_cccd_handle_ && param->write.len == 2) {
+      if (param->write.handle == this->kbd_cccd_handle_ && param->write.len == 2) {
+        this->kbd_subscribed_ = (param->write.value[0] & 0x01) != 0;
+        ESP_LOGI(TAG, "Host %s keyboard reports", this->kbd_subscribed_ ? "subscribed to" : "unsubscribed from");
+      } else if (param->write.handle == this->consumer_cccd_handle_ && param->write.len == 2) {
+        this->consumer_subscribed_ = (param->write.value[0] & 0x01) != 0;
+        ESP_LOGI(TAG, "Host %s consumer reports", this->consumer_subscribed_ ? "subscribed to" : "unsubscribed from");
+      } else if (param->write.handle == this->kbd_led_handle_ && param->write.len >= 1) {
+        ESP_LOGD(TAG, "Keyboard LEDs set by host: 0x%02X", (unsigned) param->write.value[0]);
+      } else if (param->write.handle == this->input_cccd_handle_ && param->write.len == 2) {
         bool sub = (param->write.value[0] & 0x01) != 0;
         if (sub != this->subscribed_) {
           this->subscribed_ = sub;
@@ -560,7 +641,7 @@ void BLEHIDMouse::begin_adv_config_(AdvMode mode) {
       0x02, ESP_BLE_AD_TYPE_FLAG, flags,                                         // flags
       0x05, ESP_BLE_AD_TYPE_16SRV_CMPL, UUID_HID & 0xFF, UUID_HID >> 8, UUID_BATTERY & 0xFF,
       UUID_BATTERY >> 8,                                                         // 0x1812, 0x180F
-      0x03, ESP_BLE_AD_TYPE_APPEARANCE, 0xC2, 0x03,                              // HID mouse
+      0x03, ESP_BLE_AD_TYPE_APPEARANCE, 0xC0, 0x03,                              // generic HID
   };
   esp_err_t err = esp_ble_gap_config_adv_data_raw(const_cast<uint8_t *>(adv), sizeof(adv));
   if (err != ESP_OK) {
@@ -747,8 +828,8 @@ void BLEHIDMouse::on_timer_() {
   this->timer_pending_ = false;
   if (!this->enabled_)
     return;
-  if (this->macro_active_) {
-    ESP_LOGD(TAG, "Jiggle skipped: sleep macro running");
+  if (this->macro_active_ || this->key_active_) {
+    ESP_LOGD(TAG, "Jiggle skipped: macro or key sequence running");
   } else if (this->is_ready()) {
     this->start_jiggle_();
   } else {
@@ -758,9 +839,9 @@ void BLEHIDMouse::on_timer_() {
 }
 
 bool BLEHIDMouse::jiggle_now() {
-  if (!this->is_ready() || this->jiggling() || this->macro_active_) {
+  if (!this->is_ready() || this->jiggling() || this->macro_active_ || this->key_active_) {
     ESP_LOGW(TAG, "Jiggle now ignored (%s)",
-             this->macro_active_ ? "sleep macro running" : this->jiggling() ? "already jiggling" : "host not ready");
+             (this->macro_active_ || this->key_active_) ? "macro or key sequence running" : this->jiggling() ? "already jiggling" : "host not ready");
     return false;
   }
   this->start_jiggle_();

@@ -165,6 +165,30 @@ The macro does not change the partition table, so an existing board can take it 
 
 **Measured on this build** (ESPHome 2026.9.1): flash 1,251,032 of 1,835,008 bytes per OTA slot (68.2%, up 20,550 bytes from 67.1%), about 584 KB free; RAM 141,444 of 321,296 bytes (44.0%, up 3,112).
 
+## Keyboard and consumer keys (spike, UNVERIFIED on hardware)
+
+The device is now a combo HID device: the mouse (Report ID 1, unchanged), a keyboard (ID 2) and a
+consumer-control channel (ID 3, for keys such as Eject). It advertises as a generic HID device
+(appearance 0x03C0) instead of a mouse. Only the firmware side exists so far: three diagnostic buttons
+(`Key test: tap Space`, `Key test: type sample text`, `Key test: tap Eject`) and the C++ API
+`key_tap`, `key_type`, `consumer_tap`, `key_cancel`.
+
+**After updating, forget the device in macOS Bluetooth settings and pair again.** macOS caches the HID report
+map, so an old pairing will keep behaving as a mouse and the key buttons will log
+`failed: keyboard not subscribed (re-pair the Mac)`.
+
+Things to watch for on the first run (none of them can be checked without a Mac):
+- macOS may show its Keyboard Setup Assistant the first time it sees the new keyboard.
+- Whether the sample text lands correctly in a text field (US layout is assumed for every symbol).
+- Whether Eject does anything on your Mac.
+- That mouse jiggling still works exactly as before.
+
+Typed text is never logged, and the queue is cleared when a sequence ends. A key sequence and the sleep macro
+never run at the same time, and the jiggler pauses while one runs.
+
+`python3 tools/simulate_keys.py` checks the ASCII to HID table against a US-layout table and parses the real
+report descriptor (balanced collections, report sizes 4 / 8+1 / 2, report references matching the IDs).
+
 ## Power note
 
 If the board is powered from the Mac's USB port, power may be cut or reduced when the Mac sleeps. A wall USB adapter is more reliable for HA control.
@@ -203,4 +227,5 @@ components/ble_hid_mouse/     custom component (HID-over-GATT, pairing, jiggle s
 ha/                           example automations (alert, schedule, restart) and dashboard card
 tools/simulate_jitter.py      scheduler/jitter simulation with assertions
 tools/simulate_macro.py       sleep macro report-stream simulation (builds tools/macro_harness.cpp)
+tools/simulate_keys.py        keymap table and HID descriptor checks (builds tools/keymap_harness.cpp)
 ```

@@ -799,6 +799,28 @@ button:
       - script.execute:
           id: macro_run
           mode: 4
+  # Keyboard spike (UNVERIFIED): the Mac must forget and re-pair this device once after this firmware.
+  - platform: template
+    name: "Key test: tap Space"
+    icon: mdi:keyboard-space
+    entity_category: diagnostic
+    on_press:
+      - lambda: |-
+          id(mouse)->key_tap(0, esphome::ble_hid_mouse::HID_KEY_SPACE);
+  - platform: template
+    name: "Key test: type sample text"
+    icon: mdi:keyboard-outline
+    entity_category: diagnostic
+    on_press:
+      - lambda: |-
+          id(mouse)->key_type("abc XYZ 123 !@#$%^&*() -_=+ [];',./", false);
+  - platform: template
+    name: "Key test: tap Eject"
+    icon: mdi:eject
+    entity_category: diagnostic
+    on_press:
+      - lambda: |-
+          id(mouse)->consumer_tap(0x00B8);
   - platform: restart
     id: restart_button
     name: "Restart"

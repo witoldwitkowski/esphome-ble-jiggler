@@ -8,6 +8,7 @@
 #include "esphome/components/display/display.h"
 #include "jiggler_ui.h"  // icon drawing used by the YAML display lambda
 #include "sleep_macro_plan.h"
+#include "hid_keys.h"
 
 #ifdef USE_ESP32
 
@@ -108,6 +109,19 @@ class BLEHIDMouse : public Component {
   /// Negotiated connection interval in ms (0 = unknown).
   float conn_interval_ms() const { return this->conn_x125_ * 1.25f; }
 
+  // ---- keyboard / consumer keys (UNVERIFIED on hardware; the Mac must re-pair after this firmware) ----
+  /// Tap one key with modifiers (HID usage codes, see hid_keys.h).
+  bool key_tap(uint8_t modifiers, uint8_t usage);
+  /// Tap a consumer-control usage (e.g. 0xB8 = Eject).
+  bool consumer_tap(uint16_t usage);
+  /// Type printable US-layout ASCII, then optionally Return. Characters that cannot be typed are skipped.
+  bool key_type(const std::string &text, bool enter_after);
+  void key_cancel();
+  bool key_running() const { return this->key_active_; }
+  /// The host has subscribed to the keyboard report characteristic (keys can be sent).
+  bool keyboard_ready() const { return this->connected_ && this->kbd_subscribed_; }
+  const std::string &key_status() const { return this->key_status_; }
+
  protected:
   // GATT table construction (sequential, one request per completion event).
   struct Step {
@@ -136,6 +150,8 @@ class BLEHIDMouse : public Component {
 
   // Reports.
   bool send_report_(int8_t dx, int8_t dy, uint8_t buttons = 0);  // only the macro passes buttons
+  bool send_key_report_(uint8_t modifiers, uint8_t usage);       // usage 0 = all keys up
+  bool send_consumer_report_(uint16_t usage);                    // usage 0 = released
 
   // Jiggle engine.
   void schedule_next_();
@@ -169,6 +185,16 @@ class BLEHIDMouse : public Component {
   uint16_t input_handle_{0};
   uint16_t input_cccd_handle_{0};
   uint8_t input_init_[4]{};
+  uint16_t kbd_handle_{0};
+  uint16_t kbd_cccd_handle_{0};
+  uint16_t kbd_led_handle_{0};
+  uint16_t consumer_handle_{0};
+  uint16_t consumer_cccd_handle_{0};
+  uint8_t kbd_init_[8]{};
+  uint8_t kbd_led_[1]{};
+  uint8_t consumer_init_[2]{};
+  bool kbd_subscribed_{false};
+  bool consumer_subscribed_{false};
 
   // Link.
   bool connected_{false};
@@ -256,6 +282,24 @@ class BLEHIDMouse : public Component {
   bool macro_have_last_full_{false};
   uint16_t conn_x125_{0};
   std::string macro_status_{"idle"};
+
+  // Key sequences (implemented in keyboard.cpp).
+  struct KeyEvt {
+    uint8_t mod;
+    uint8_t usage;      // keyboard usage, or 0 when consumer is set
+    uint16_t consumer;  // consumer usage, 0 for a keyboard key
+  };
+  bool key_begin_(const char *what);
+  void key_step_();
+  void key_finish_(const char *status);
+  void key_release_();
+  void key_on_disconnect_();
+  std::vector<KeyEvt> key_queue_;
+  size_t key_idx_{0};
+  bool key_active_{false};
+  bool key_down_{false};
+  uint32_t key_pace_ms_{30};
+  std::string key_status_{"idle"};
 };
 
 class JiggleTrigger : public Trigger<> {
