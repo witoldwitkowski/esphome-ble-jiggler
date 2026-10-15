@@ -111,6 +111,33 @@ bool BLEHIDMouse::consumer_tap(uint16_t usage, uint8_t modifiers) {
   return true;
 }
 
+bool BLEHIDMouse::key_lock_then(bool lock_first, uint16_t wait_ms, uint8_t modifiers, uint8_t usage,
+                                uint16_t consumer) {
+  if (!this->key_begin_("Lock then sleep"))
+    return false;
+  if (consumer != 0 && !this->consumer_subscribed_) {
+    this->key_status_ = "failed: consumer keys not subscribed (re-pair the Mac)";
+    ESP_LOGW(TAG, "Lock then sleep refused: %s", this->key_status_.c_str());
+    return false;
+  }
+  this->key_queue_.clear();
+  if (lock_first) {
+    KeyEvt lock{(uint8_t) (HID_MOD_LCTRL | HID_MOD_LGUI), 0x14, 0};  // Ctrl+Cmd+Q: lock screen
+    lock.wait_ms = wait_ms;
+    this->key_queue_.push_back(lock);
+  }
+  this->key_queue_.push_back(KeyEvt{modifiers, usage, consumer});
+  this->key_idx_ = 0;
+  this->key_down_ = false;
+  this->key_active_ = true;
+  this->key_status_ = "running";
+  ESP_LOGI(TAG, "Lock then sleep: lock=%s wait=%ums chord modifiers=0x%02X usage=0x%02X consumer=0x%04X (pace %u ms)",
+           lock_first ? "yes" : "no", (unsigned) wait_ms, (unsigned) modifiers, (unsigned) usage, (unsigned) consumer,
+           (unsigned) this->key_pace_ms_);
+  this->key_step_();
+  return true;
+}
+
 bool BLEHIDMouse::key_type(const std::string &text, bool enter_after) {
   if (!this->key_begin_("Type"))
     return false;
@@ -156,6 +183,7 @@ void BLEHIDMouse::key_step_() {
   }
   const KeyEvt &e = this->key_queue_[this->key_idx_];
   const bool consumer = e.consumer != 0;
+  uint32_t delay = this->key_pace_ms_;
   if (!this->key_down_) {
     // A consumer key with modifiers: hold the modifiers on the keyboard channel around it.
     const bool ok = consumer ? ((e.mod == 0 || this->send_key_report_(e.mod, 0)) && this->send_consumer_report_(e.consumer))
@@ -177,8 +205,9 @@ void BLEHIDMouse::key_step_() {
     }
     this->key_down_ = false;
     this->key_idx_++;
+    delay += e.wait_ms;
   }
-  this->set_timeout("key", this->key_pace_ms_, [this]() { this->key_step_(); });
+  this->set_timeout("key", delay, [this]() { this->key_step_(); });
 }
 
 // Never leave a key held: if the link is still up, send the release.

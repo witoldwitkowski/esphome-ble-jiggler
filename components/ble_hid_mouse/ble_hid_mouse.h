@@ -92,6 +92,9 @@ class BLEHIDMouse : public Component {
   bool consumer_tap(uint16_t usage, uint8_t modifiers = 0);  // modifiers are held around the tap (e.g. Cmd+Option+Eject)
   /// Type printable US-layout ASCII, then optionally Return. Characters that cannot be typed are skipped.
   bool key_type(const std::string &text, bool enter_after);
+  /// Optionally lock the screen (Ctrl+Cmd+Q), wait, then send one chord: a keyboard key (usage) or, when
+  /// consumer is non-zero, a consumer key held with the modifiers. Used for "lock then sleep".
+  bool key_lock_then(bool lock_first, uint16_t wait_ms, uint8_t modifiers, uint8_t usage, uint16_t consumer);
   void key_cancel();
   bool key_running() const { return this->key_active_; }
   /// The host has subscribed to the keyboard report characteristic (keys can be sent).
@@ -239,6 +242,7 @@ class BLEHIDMouse : public Component {
     uint8_t mod;
     uint8_t usage;      // keyboard usage, or 0 when consumer is set
     uint16_t consumer;  // consumer usage, 0 for a keyboard key (mod is then held around it)
+    uint16_t wait_ms{0};  // extra pause after this key is released
   };
   uint16_t read_conn_interval_();  // negotiated interval in 1.25 ms units, 0 = unknown
   bool key_begin_(const char *what);

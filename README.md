@@ -107,12 +107,15 @@ macOS caches the HID report map, so an old pairing keeps behaving as a mouse and
 
 ### Put Mac to sleep (HA button)
 
-The **Put Mac to sleep** button sends a key chord, chosen with the **Sleep key** select:
+The **Put Mac to sleep** button first **locks the screen** (Ctrl+Cmd+Q, works on every macOS, switch **Lock before sleep**, default on),
+waits **Sleep: lock to sleep gap** (default 1200 ms), then sends a sleep chord chosen with the **Sleep key** select. Locking first matters:
+on the owner's Mac, Cmd+Option+Eject only put the display to sleep, and a jiggle brought it straight back to an unlocked desktop. With the
+lock, a display wake lands on the login window, which the unlock macro can then handle.
 
 | Option | What it needs | Status |
 |---|---|---|
-| `Shortcut: Ctrl+Option+Cmd+S` (default) | One-time Mac setup: in the **Shortcuts** app, make a shortcut with the **Sleep** action, then in its details set a **keyboard shortcut** of Ctrl+Option+Cmd+S. Works on any macOS version. | Chord reaches the Mac like any key; the Shortcut itself is not tested here |
-| `Cmd+Option+Eject` | Nothing. The classic Mac sleep chord. | **Untested**. A bare Eject did nothing on the owner's Mac |
+| `Shortcut: Ctrl+Option+Cmd+S` (default) | One-time Mac setup: in the **Shortcuts** app, make a shortcut with the **Sleep** action, then in its details set a **keyboard shortcut** of Ctrl+Option+Cmd+S. Works on any macOS version. | Chord reaches the Mac like any key; the Shortcut itself is not tested here. **Best bet for real system sleep**: give the Shortcut a **Lock Screen** action and then a **Sleep** action |
+| `Cmd+Option+Eject` | Nothing. The classic Mac sleep chord. | Sleeps the **display only** on the owner's Mac (a bare Eject did nothing) |
 | `Ctrl+Shift+Eject (display only)` | Nothing. Sleeps the display, not the Mac. | **Untested** |
 
 **Turn jiggler off after sleep** (default on) switches the jiggler off after a sent chord so a jiggle does not wake the Mac. There is no

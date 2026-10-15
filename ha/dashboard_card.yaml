@@ -34,6 +34,8 @@ cards:
     entities:
       - entity: button.ble_jiggler_put_mac_to_sleep
       - entity: select.ble_jiggler_sleep_key
+      - entity: switch.ble_jiggler_lock_before_sleep
+      - entity: number.ble_jiggler_sleep_lock_to_sleep_gap_ms
       - entity: switch.ble_jiggler_turn_jiggler_off_after_sleep
       - type: divider
       - entity: button.ble_jiggler_wake_and_unlock_mac

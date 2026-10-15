@@ -258,6 +258,14 @@ switch:
     optimistic: true
 
   - platform: template
+    name: "Lock before sleep"
+    id: sleep_lock_first
+    icon: mdi:lock
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    optimistic: true
+
+  - platform: template
     name: "Turn jiggler off after sleep"
     id: sleep_disable_jiggler
     icon: mdi:mouse-off
@@ -354,6 +362,20 @@ number:
     optimistic: true
     restore_value: true
     initial_value: ${default_display_timeout}
+
+  - platform: template
+    name: "Sleep: lock to sleep gap (ms)"
+    id: sleep_lock_wait
+    icon: mdi:timer-sand
+    entity_category: config
+    unit_of_measurement: "ms"
+    min_value: 200
+    max_value: 5000
+    step: 100
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: 1200
 
   - platform: template
     name: "Unlock: wake wait (ms)"
@@ -484,13 +506,15 @@ button:
       - lambda: |-
           using namespace esphome::ble_hid_mouse;
           const std::string m = std::string(id(sleep_method).current_option());
+          const bool lock = id(sleep_lock_first).state;
+          const uint16_t wait = (uint16_t) id(sleep_lock_wait).state;
           bool sent;
           if (m == "Cmd+Option+Eject")
-            sent = id(mouse)->consumer_tap(0x00B8, HID_MOD_LGUI | HID_MOD_LALT);
+            sent = id(mouse)->key_lock_then(lock, wait, HID_MOD_LGUI | HID_MOD_LALT, 0, 0x00B8);
           else if (m == "Ctrl+Shift+Eject (display only)")
-            sent = id(mouse)->consumer_tap(0x00B8, HID_MOD_LCTRL | HID_MOD_LSHIFT);
+            sent = id(mouse)->key_lock_then(lock, wait, HID_MOD_LCTRL | HID_MOD_LSHIFT, 0, 0x00B8);
           else  // a macOS Shortcut with the Sleep action, bound to Ctrl+Option+Cmd+S
-            sent = id(mouse)->key_tap(HID_MOD_LCTRL | HID_MOD_LALT | HID_MOD_LGUI, 0x16);
+            sent = id(mouse)->key_lock_then(lock, wait, HID_MOD_LCTRL | HID_MOD_LALT | HID_MOD_LGUI, 0x16, 0);
           id(sleep_pending) = sent && id(sleep_disable_jiggler).state;
           id(last_activity_ms) = millis();
   - platform: template
