@@ -61,7 +61,6 @@ esphome:
           if (!std::isnan(id(max_interval).state)) id(mouse)->set_max_interval_s(id(max_interval).state);
           if (!std::isnan(id(amplitude).state)) id(mouse)->set_amplitude((uint8_t) id(amplitude).state);
           id(mouse)->set_enabled(id(jiggler_enabled).state);
-          id(mouse)->set_quiet(id(quiet_persist) && id(macro_quiet).state);  // stay silent across a reboot until re-enabled
           id(last_activity_ms) = millis();
 
 esp32:
@@ -199,16 +198,9 @@ globals:
   - id: oled_off
     type: bool
     initial_value: "false"
-  - id: preset_loading
-    type: bool
-    initial_value: "false"
-  - id: macro_seq_seen
+  - id: key_seq_seen
     type: uint32_t
     initial_value: "0"
-  - id: quiet_persist
-    type: bool
-    restore_value: true
-    initial_value: "false"
 
 # -----------------------------------------------------------------------------
 # Controls
@@ -260,31 +252,28 @@ switch:
     optimistic: true
 
   - platform: template
-    name: "Sleep macro dry run"
-    id: macro_dry_run
+    name: "Unlock dry run"
+    id: unlock_dry_run
     icon: mdi:test-tube
     entity_category: config
     restore_mode: RESTORE_DEFAULT_OFF
     optimistic: true
 
   - platform: template
-    name: "Disable jiggler after sleep macro"
-    id: macro_disable_jiggler
-    icon: mdi:mouse-off
+    name: "Press Return after password"
+    id: unlock_return
+    icon: mdi:keyboard-return
     entity_category: config
     restore_mode: RESTORE_DEFAULT_ON
     optimistic: true
 
   - platform: template
-    name: "Quiet after sleep"
-    id: macro_quiet
-    icon: mdi:bluetooth-off
+    name: "Re-enable jiggler after unlock"
+    id: unlock_enable_jiggler
+    icon: mdi:mouse-move-vertical
     entity_category: config
     restore_mode: RESTORE_DEFAULT_ON
     optimistic: true
-    turn_off_action:
-      - lambda: |-
-          id(mouse)->set_quiet(false);
 
 number:
   - platform: template
@@ -353,292 +342,64 @@ number:
     initial_value: ${default_display_timeout}
 
   - platform: template
-    name: "Slam report count"
-    id: m_slam_count
-    icon: mdi:arrow-collapse-up
-    entity_category: config
-    min_value: 5
-    max_value: 300
-    step: 1
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 40
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Slam counts per report"
-    id: m_slam_cpr
-    icon: mdi:speedometer
-    entity_category: config
-    unit_of_measurement: "counts"
-    min_value: 1
-    max_value: 127
-    step: 1
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 127
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Slam interval (ms)"
-    id: m_slam_interval_ms
-    icon: mdi:timer-outline
-    entity_category: config
-    unit_of_measurement: "ms"
-    min_value: 5
-    max_value: 200
-    step: 1
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 15
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Slam settle time (ms)"
-    id: m_settle_ms
+    name: "Unlock: wake wait (ms)"
+    id: unlock_wake_dwell
     icon: mdi:timer-sand
     entity_category: config
     unit_of_measurement: "ms"
-    min_value: 100
-    max_value: 5000
-    step: 50
+    min_value: 0
+    max_value: 10000
+    step: 100
     mode: box
     optimistic: true
     restore_value: true
-    initial_value: 500
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
+    initial_value: 1500
 
   - platform: template
-    name: "Slam repeat passes"
-    id: m_slam_passes
-    icon: mdi:repeat
-    entity_category: config
-    min_value: 1
-    max_value: 3
-    step: 1
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 1
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Drift counts per step"
-    id: m_drift_cps
-    icon: mdi:speedometer-slow
-    entity_category: config
-    unit_of_measurement: "counts"
-    min_value: 1
-    max_value: 3
-    step: 1
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 2
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Drift step interval (ms)"
-    id: m_drift_interval_ms
-    icon: mdi:timer-outline
+    name: "Unlock: Space to Return gap (ms)"
+    id: unlock_key_gap
+    icon: mdi:timer-sand
     entity_category: config
     unit_of_measurement: "ms"
-    min_value: 5
-    max_value: 200
-    step: 1
+    min_value: 0
+    max_value: 5000
+    step: 100
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: 600
+
+  - platform: template
+    name: "Unlock: password field wait (ms)"
+    id: unlock_field_dwell
+    icon: mdi:timer-sand
+    entity_category: config
+    unit_of_measurement: "ms"
+    min_value: 0
+    max_value: 5000
+    step: 100
+    mode: box
+    optimistic: true
+    restore_value: true
+    initial_value: 1000
+
+  - platform: template
+    name: "Unlock: wait for Mac to reconnect (s)"
+    id: unlock_connect_wait
+    icon: mdi:bluetooth-connect
+    entity_category: config
+    unit_of_measurement: "s"
+    min_value: 0
+    max_value: 120
+    step: 5
     mode: box
     optimistic: true
     restore_value: true
     initial_value: 20
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
 
   - platform: template
-    name: "Drift scale (%)"
-    id: m_drift_scale_pct
-    icon: mdi:percent
-    entity_category: config
-    unit_of_measurement: "%"
-    min_value: 25
-    max_value: 400
-    step: 1
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 100
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Apple logo X (counts)"
-    id: m_logo_x
-    icon: mdi:apple
-    entity_category: config
-    unit_of_measurement: "counts"
-    min_value: 0
-    max_value: 300
-    step: 1
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 24
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Apple logo Y (counts)"
-    id: m_logo_y
-    icon: mdi:apple
-    entity_category: config
-    unit_of_measurement: "counts"
-    min_value: 0
-    max_value: 200
-    step: 1
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 14
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Sleep row Y (counts)"
-    id: m_sleep_y
-    icon: mdi:sleep
-    entity_category: config
-    unit_of_measurement: "counts"
-    min_value: 0
-    max_value: 800
-    step: 1
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 190
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Sleep row X adjust (counts)"
-    id: m_sleep_x
-    icon: mdi:sleep
-    entity_category: config
-    unit_of_measurement: "counts"
-    min_value: -200
-    max_value: 200
-    step: 1
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 0
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Dwell before click (ms)"
-    id: m_dwell_before_ms
-    icon: mdi:cursor-default-click
-    entity_category: config
-    unit_of_measurement: "ms"
-    min_value: 0
-    max_value: 5000
-    step: 50
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 300
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Click hold (ms)"
-    id: m_click_hold_ms
-    icon: mdi:cursor-default-click
-    entity_category: config
-    unit_of_measurement: "ms"
-    min_value: 20
-    max_value: 1000
-    step: 10
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 80
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Menu-open dwell (ms)"
-    id: m_menu_dwell_ms
-    icon: mdi:menu
-    entity_category: config
-    unit_of_measurement: "ms"
-    min_value: 100
-    max_value: 5000
-    step: 50
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 800
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Hover dwell (ms)"
-    id: m_hover_dwell_ms
-    icon: mdi:cursor-default
-    entity_category: config
-    unit_of_measurement: "ms"
-    min_value: 0
-    max_value: 3000
-    step: 50
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 400
-    set_action:
-      - lambda: |-
-          if (!id(preset_loading)) id(macro_target).make_call().set_option("Custom").perform();
-
-  - platform: template
-    name: "Sleep confirmation timeout (s)"
-    id: m_confirm_timeout_s
-    icon: mdi:timer-alert-outline
-    entity_category: config
-    unit_of_measurement: "s"
-    min_value: 5
-    max_value: 120
-    step: 1
-    mode: box
-    optimistic: true
-    restore_value: true
-    initial_value: 30
-
-  - platform: template
-    name: "Macro cooldown (s)"
-    id: m_cooldown_s
+    name: "Unlock: cooldown (s)"
+    id: unlock_cooldown
     icon: mdi:timer-lock-outline
     entity_category: config
     unit_of_measurement: "s"
@@ -648,88 +409,22 @@ number:
     mode: box
     optimistic: true
     restore_value: true
-    initial_value: 60
+    initial_value: 30
 
-select:
+text:
+  # The Mac login password, typed by "Wake and unlock Mac". Stored in this device's flash in plain text
+  # and visible to anyone with access to this Home Assistant. US keyboard layout is assumed.
   - platform: template
-    name: "Target macOS"
-    id: macro_target
-    icon: mdi:laptop
+    name: "Mac password"
+    id: mac_password
+    icon: mdi:form-textbox-password
     entity_category: config
-    options: ["macOS 26 Tahoe", "macOS 15 Sequoia", "macOS 14 Sonoma", "Custom"]
-    initial_option: "macOS 26 Tahoe"
+    mode: password
     optimistic: true
     restore_value: true
-    # Choosing a preset loads its starting numbers. They are UNVERIFIED guesses, not measurements.
-    set_action:
-      - lambda: |-
-          int idx = x == "macOS 26 Tahoe" ? 0 : x == "macOS 15 Sequoia" ? 1 : x == "macOS 14 Sonoma" ? 2 : -1;
-          if (idx < 0) return;
-          const auto &p = esphome::ble_hid_mouse::macro_preset(idx);
-          ESP_LOGW("sleep_macro", "Loading preset '%s': UNVERIFIED starting values, not measured. Calibrate before trusting.", x.c_str());
-          id(preset_loading) = true;
-          id(m_slam_count).make_call().set_value(p.slam_count).perform();
-          id(m_slam_cpr).make_call().set_value(p.slam_cpr).perform();
-          id(m_slam_interval_ms).make_call().set_value(p.slam_interval_ms).perform();
-          id(m_settle_ms).make_call().set_value(p.settle_ms).perform();
-          id(m_slam_passes).make_call().set_value(p.slam_passes).perform();
-          id(m_drift_cps).make_call().set_value(p.drift_cps).perform();
-          id(m_drift_interval_ms).make_call().set_value(p.drift_interval_ms).perform();
-          id(m_drift_scale_pct).make_call().set_value(p.drift_scale_pct).perform();
-          id(m_logo_x).make_call().set_value(p.logo_x).perform();
-          id(m_logo_y).make_call().set_value(p.logo_y).perform();
-          id(m_sleep_y).make_call().set_value(p.sleep_y).perform();
-          id(m_sleep_x).make_call().set_value(p.sleep_x).perform();
-          id(m_dwell_before_ms).make_call().set_value(p.dwell_before_ms).perform();
-          id(m_click_hold_ms).make_call().set_value(p.click_hold_ms).perform();
-          id(m_menu_dwell_ms).make_call().set_value(p.menu_dwell_ms).perform();
-          id(m_hover_dwell_ms).make_call().set_value(p.hover_dwell_ms).perform();
-          id(preset_loading) = false;
-
-  - platform: template
-    name: "Menu corner"
-    id: macro_corner
-    icon: mdi:arrow-top-left
-    entity_category: config
-    # Top-left = the leftmost display's top-left. Top-right = the rightmost display's top-right
-    # (X mirrored, for right-to-left system languages).
-    options: ["Top-left", "Top-right"]
-    initial_option: "Top-left"
-    optimistic: true
-    restore_value: true
-
-script:
-  - id: macro_run
-    mode: single
-    parameters:
-      mode: int
-    then:
-      - lambda: |-
-          auto &p = id(mouse)->macro_params();
-          p.slam_count = (decltype(p.slam_count)) id(m_slam_count).state;
-          p.slam_cpr = (decltype(p.slam_cpr)) id(m_slam_cpr).state;
-          p.slam_interval_ms = (decltype(p.slam_interval_ms)) id(m_slam_interval_ms).state;
-          p.settle_ms = (decltype(p.settle_ms)) id(m_settle_ms).state;
-          p.slam_passes = (decltype(p.slam_passes)) id(m_slam_passes).state;
-          p.drift_cps = (decltype(p.drift_cps)) id(m_drift_cps).state;
-          p.drift_interval_ms = (decltype(p.drift_interval_ms)) id(m_drift_interval_ms).state;
-          p.drift_scale_pct = (decltype(p.drift_scale_pct)) id(m_drift_scale_pct).state;
-          p.logo_x = (decltype(p.logo_x)) id(m_logo_x).state;
-          p.logo_y = (decltype(p.logo_y)) id(m_logo_y).state;
-          p.sleep_y = (decltype(p.sleep_y)) id(m_sleep_y).state;
-          p.sleep_x = (decltype(p.sleep_x)) id(m_sleep_x).state;
-          p.dwell_before_ms = (decltype(p.dwell_before_ms)) id(m_dwell_before_ms).state;
-          p.click_hold_ms = (decltype(p.click_hold_ms)) id(m_click_hold_ms).state;
-          p.menu_dwell_ms = (decltype(p.menu_dwell_ms)) id(m_menu_dwell_ms).state;
-          p.hover_dwell_ms = (decltype(p.hover_dwell_ms)) id(m_hover_dwell_ms).state;
-          p.confirm_timeout_s = (decltype(p.confirm_timeout_s)) id(m_confirm_timeout_s).state;
-          p.cooldown_s = (decltype(p.cooldown_s)) id(m_cooldown_s).state;
-          p.top_right = std::string(id(macro_corner).current_option()) == "Top-right";
-          p.dry_run = id(macro_dry_run).state;
-          p.disable_jiggler = id(macro_disable_jiggler).state;
-          p.quiet = id(macro_quiet).state;
-          id(last_activity_ms) = millis();
-          id(mouse)->macro_start((esphome::ble_hid_mouse::MacroMode) mode);
+    min_length: 0
+    max_length: 64
+    initial_value: ""
 
 button:
   - platform: template
@@ -754,52 +449,36 @@ button:
           id(mouse)->forget_host();
           id(last_activity_ms) = millis();
   - platform: template
-    name: "Put Mac to sleep"
-    id: macro_sleep_button
-    icon: mdi:laptop-off
+    name: "Wake and unlock Mac"
+    id: unlock_button
+    icon: mdi:lock-open-variant
     on_press:
-      - script.execute:
-          id: macro_run
-          mode: 0
+      - lambda: |-
+          auto &p = id(mouse)->unlock_params();
+          p.wake_dwell_ms = (uint16_t) id(unlock_wake_dwell).state;
+          p.key_gap_ms = (uint16_t) id(unlock_key_gap).state;
+          p.field_dwell_ms = (uint16_t) id(unlock_field_dwell).state;
+          p.connect_wait_s = (uint16_t) id(unlock_connect_wait).state;
+          p.cooldown_s = (uint16_t) id(unlock_cooldown).state;
+          p.press_return = id(unlock_return).state;
+          p.dry_run = id(unlock_dry_run).state;
+          p.password = id(mac_password).state;
+          id(last_activity_ms) = millis();
+          id(mouse)->unlock_start();
   - platform: template
-    name: "Cancel macro"
+    name: "Cancel key sequence"
     icon: mdi:cancel
     on_press:
       - lambda: |-
-          id(mouse)->macro_cancel();
+          id(mouse)->key_cancel();
   - platform: template
-    name: "Macro test 1: go to corner"
-    icon: mdi:numeric-1-box-outline
-    entity_category: config
+    name: "Key test: Cmd+Option+Eject"
+    icon: mdi:laptop-off
+    entity_category: diagnostic
     on_press:
-      - script.execute:
-          id: macro_run
-          mode: 1
-  - platform: template
-    name: "Macro test 2: go to Apple logo"
-    icon: mdi:numeric-2-box-outline
-    entity_category: config
-    on_press:
-      - script.execute:
-          id: macro_run
-          mode: 2
-  - platform: template
-    name: "Macro test 3: open Apple menu"
-    icon: mdi:numeric-3-box-outline
-    entity_category: config
-    on_press:
-      - script.execute:
-          id: macro_run
-          mode: 3
-  - platform: template
-    name: "Macro test 4: hover Sleep"
-    icon: mdi:numeric-4-box-outline
-    entity_category: config
-    on_press:
-      - script.execute:
-          id: macro_run
-          mode: 4
-  # Keyboard spike (UNVERIFIED): the Mac must forget and re-pair this device once after this firmware.
+      - lambda: |-
+          id(mouse)->consumer_tap(0x00B8, esphome::ble_hid_mouse::HID_MOD_LGUI | esphome::ble_hid_mouse::HID_MOD_LALT);
+  # Key tests (the Mac must forget and re-pair this device once after the keyboard firmware).
   - platform: template
     name: "Key test: tap Space"
     icon: mdi:keyboard-space
@@ -872,13 +551,6 @@ sensor:
     filters:
       - delta: 0.5
 
-  - platform: template
-    name: "Last sleep macro"
-    id: macro_last_sensor
-    device_class: timestamp
-    icon: mdi:laptop-off
-    update_interval: never
-
   - platform: wifi_signal
     name: "Wi-Fi signal"
     id: wifi_rssi
@@ -901,9 +573,9 @@ debug:
 
 text_sensor:
   - platform: template
-    name: "Sleep macro status"
-    id: macro_status_sensor
-    icon: mdi:laptop-off
+    name: "Key status"
+    id: key_status_sensor
+    icon: mdi:keyboard
     update_interval: never
   - platform: wifi_info
     ip_address:
@@ -925,11 +597,11 @@ text_sensor:
 # -----------------------------------------------------------------------------
 binary_sensor:
   - platform: template
-    name: "Sleep macro running"
-    id: macro_running_sensor
-    icon: mdi:progress-clock
+    name: "Key sequence running"
+    id: key_running_sensor
+    icon: mdi:keyboard-variant
     lambda: |-
-      return id(mouse)->macro_running();
+      return id(mouse)->key_running();
   # BOOT button. GPIO9 is a strapping pin: it is only read after boot.
   - platform: gpio
     id: boot_button
@@ -947,7 +619,6 @@ binary_sensor:
       - min_length: 50ms
         max_length: 1500ms
         then:
-          - lambda: 'id(mouse)->macro_ack();'
           - switch.toggle: display_on
       - min_length: 3s
         max_length: 9s
@@ -983,20 +654,19 @@ interval:
             - output.turn_on: led_out
             - delay: 40ms
             - output.turn_off: led_out
-  # Sleep macro: mirror status to HA and react to the end of a run. Cheap: publishes on change only.
+  # Key sequences and unlock: mirror status to HA, re-enable the jiggler after a good unlock.
   - interval: 250ms
     then:
       - lambda: |-
           auto *m = id(mouse);
-          if (id(macro_status_sensor).state != m->macro_status()) id(macro_status_sensor).publish_state(m->macro_status());
-          const uint32_t seq = m->macro_run_seq();
-          if (seq != id(macro_seq_seen)) {
-            id(macro_seq_seen) = seq;
-            if (m->macro_last_was_live_full()) id(macro_last_sensor).publish_state((float) id(ha_time).timestamp_now());
-            if (m->macro_last_slept() && id(macro_disable_jiggler).state) id(jiggler_enabled).turn_off();
+          if (id(key_status_sensor).state != m->key_status()) id(key_status_sensor).publish_state(m->key_status());
+          const uint32_t seq = m->key_run_seq();
+          if (seq != id(key_seq_seen)) {
+            id(key_seq_seen) = seq;
+            if (m->key_last_was_live_unlock() && m->key_last_ok() && id(unlock_enable_jiggler).state)
+              id(jiggler_enabled).turn_on();
           }
-          if (id(quiet_persist) != m->quiet()) id(quiet_persist) = m->quiet();
-          if (m->macro_running()) id(last_activity_ms) = millis();
+          if (m->key_running()) id(last_activity_ms) = millis();
   # Display power: blank when "Display on" is off, dim after the idle timeout.
   - interval: 250ms
     then:
@@ -1062,17 +732,13 @@ display:
       else s.wifi_bars = 1;
       s.api_up = api::global_api_server->is_connected();
       s.progress = (s.enabled && ready) ? id(mouse)->interval_progress() : -1.0f;
-      s.macro_stage = id(mouse)->macro_stage();
-      s.macro_result = id(mouse)->macro_result_icon();
-      s.dry_run = id(macro_dry_run).state;
       s.ota = id(ota_active);
       s.ota_pct = id(ota_percent);
       s.now_ms = millis();
       s.test_pattern = ${oled_test_pattern};
       // Any state change wakes the display from dimming.
       uint32_t sig = (ready ? 1 : 0) | (id(mouse)->has_bond() ? 2 : 0) | (id(mouse)->pairing_active() ? 4 : 0) |
-                     (s.enabled ? 8 : 0) | (wifi_up ? 16 : 0) | (s.api_up ? 32 : 0) | (s.ota ? 64 : 0) |
-                     (s.macro_stage ? 128 : 0) | (s.macro_result << 8) | (s.dry_run ? 1024 : 0);
+                     (s.enabled ? 8 : 0) | (wifi_up ? 16 : 0) | (s.api_up ? 32 : 0) | (s.ota ? 64 : 0);
       if (sig != id(last_sig)) {
         id(last_sig) = sig;
         id(last_activity_ms) = millis();

@@ -109,7 +109,7 @@ def check_descriptor():
     # Payload sizes sent by the firmware.
     kb = (ROOT / "components/ble_hid_mouse/keyboard.cpp").read_text()
     assert "uint8_t report[8] = {modifiers" in kb and "uint8_t report[2]" in kb
-    assert "uint8_t report[4] = {(uint8_t) (buttons" in CPP
+    assert "uint8_t report[4] = {0x00, (uint8_t) dx" in CPP
     return len(report_map())
 
 

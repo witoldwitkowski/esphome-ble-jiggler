@@ -35,13 +35,14 @@ Other choices:
 | OLED icon appearance | **Not verified**; drawn with primitives, never rendered |
 | Wi-Fi + BLE coexistence stability over time | **Not verified** |
 | Home Assistant entities, example automations | Not run against a live HA (YAML parses; entity IDs assume the device name "BLE Jiggler") |
-| Sleep macro: `esphome config` / `compile` | **Pass**, no warnings |
-| Sleep macro: `tools/simulate_macro.py` (compiles the real planner header) | **Passes**: X-before-Y slam, drift sums, click counts, button always released on cancel, pacing, pointer model |
-| Sleep macro: pointer landing, Tahoe menu geometry, quiet-mode wake behavior, negotiated BLE interval, OLED moon icons | **Not verified** (no hardware) |
+| Keyboard channel: typed text and Space on a real Mac | **Works** (tested by the owner: sample text typed correctly) |
+| Keyboard channel: bare Eject key | Did nothing on the owner's Mac. Cmd+Option+Eject is untested |
+| Unlock macro: `esphome compile`, `tools/simulate_unlock.py` (compiles the real planner header) | **Pass**: wiggle nets zero, key order, typed text decodes to the password, key always released on cancel, pacing |
+| Unlock macro on a real Mac: reconnect from sleep, Space then Return reaching the lock screen, timings | **Not verified** |
 
 **Build footprint** (ESPHome 2026.9.1, ESP32-C3, 4 MB flash):
-- RAM: 138,332 of 321,296 bytes (43.1%).
-- Flash: app 1,230,482 of 1,835,008 bytes per OTA slot (67.1%, about 600 KB free). OTA uses two slots (`0x1C0000` each).
+- RAM: 139,764 of 321,296 bytes (43.5%).
+- Flash: app 1,245,944 of 1,835,008 bytes per OTA slot (67.9%, about 590 KB free). OTA uses two slots (`0x1C0000` each).
 - NVS (settings + Bluetooth bonds): 448 KB.
 
 **Simulation** (`python3 tools/simulate_jitter.py`) models the scheduler logic from the C++ code and asserts: every interval is within [min, max]; every jiggle nets exactly (0, 0); amplitude stays within 1..configured (hard range 1-5); no reports while disconnected, and skipped jiggles are not queued or replayed; a jiggle cut short by a disconnect is undone on reconnect; min > max clamps to max = min; button and wheel bytes are always 0. It tests scheduling only, not Bluetooth.
@@ -93,101 +94,82 @@ Generate the API key with `openssl rand -base64 32` (or any 32-byte base64 value
 5. macOS may list the device as "Mouse" in Mouse settings. A mouse should not trigger the Keyboard Setup Assistant; if it appears, it can be dismissed.
 6. When the Mac sleeps the BLE link drops and the HA sensor flips to off; the jiggler keeps advertising and the Mac reconnects on wake. No jiggles are queued while it is away.
 
-## Sleep macro (put the Mac to sleep with the mouse alone)
+## Keyboard and wake-and-unlock
 
-**Status: not verified on hardware. Calibrate before you trust it.** The built-in numbers are unverified starting points, not measurements.
+The device is a combo HID device: the mouse (Report ID 1, unchanged), a keyboard (ID 2) and a
+consumer-control channel (ID 3, for keys such as Eject). It advertises as a generic HID device
+(appearance 0x03C0) instead of a mouse.
 
-The **Put Mac to sleep** button drives the pointer to the top-left corner of the leftmost display, moves to the Apple logo, clicks it, moves down the menu to **Sleep** and clicks. It uses mouse reports only: no keyboard, no SSH, no software on the Mac. Success means the Bluetooth link dropped within the timeout (a sleeping Mac drops it).
+**After updating from a mouse-only firmware, forget the device in macOS Bluetooth settings and pair again.**
+macOS caches the HID report map, so an old pairing keeps behaving as a mouse and the key buttons log
+`failed: keyboard not subscribed (re-pair the Mac)`.
 
-### What it depends on
+### Wake and unlock Mac (UNVERIFIED on a real locked Mac)
 
-The numbers are counts of mouse movement, so the result depends on things the jiggler cannot see:
-- the Mac's **tracking speed** setting and pointer acceleration
-- **display scaling** and resolution
-- **display arrangement**: the assumed layout is side by side with the leftmost display on the left. With **Top-left** the target is the *leftmost* display's top-left; with **Top-right** it is the *rightmost* display's top-right (X mirrored, for right-to-left system languages)
-- **which Apple-menu items exist**: managed Macs may add or remove items such as App Store, which moves Sleep by a row
-- the macOS version and language (menu animation speed and row heights)
+The **Wake and unlock Mac** button runs: a small mouse wiggle that returns to where it started (wakes the display),
+wait, **Space**, wait, **Return**, wait for the password field, type the password, then **Return** (switchable).
+Every wait is a number you can change without reflashing:
 
-Assumed target: macOS 26 (Tahoe) on an M1 MacBook, two displays side by side, menu bar visible on both, no auto-hide, no hot corners. The assumed Apple menu order is About This Mac, System Settings, App Store, Recent Items, Force Quit, **Sleep**, Restart, Shut Down, Lock Screen, Log Out. Do not trust it for your Mac; test.
+| Entity | Default |
+|---|---|
+| Unlock: wake wait (ms), after the wiggle | 1500 |
+| Unlock: Space to Return gap (ms) | 600 |
+| Unlock: password field wait (ms) | 1000 |
+| Unlock: wait for Mac to reconnect (s) | 20 |
+| Unlock: cooldown (s) | 30 |
 
-If the two displays have different heights or vertical offsets, the cursor can stop at the seam between them during the X slam. Set **Slam repeat passes** to 2 (X then Y, once more).
+Other entities: **Mac password** (text), **Press Return after password** (default on), **Unlock dry run** (default off),
+**Re-enable jiggler after unlock** (default on), **Cancel key sequence**, **Key status**, **Key sequence running**.
 
-### How it runs
+How it behaves:
+- If the Mac is asleep and the link is down, it waits up to the reconnect time for the Mac to connect, then runs. **Whether a
+  sleeping Mac reconnects to the device is the main thing that has not been tested.** If it does not, the status is
+  `failed: Mac did not reconnect`.
+- It never retries. After a live run it will not start again for the cooldown, so a missed password field cannot send
+  repeated wrong passwords into the login window. A dry run (wiggle only, no key at all) ignores the cooldown.
+- A status of `done` means the keys were sent, not that the Mac unlocked. There is no feedback channel from the Mac.
+- A dropped link or **Cancel key sequence** stops immediately and releases any held key.
+- The jiggler and key tests do not run while it does. After a good unlock the jiggler is switched back on if **Re-enable jiggler
+  after unlock** is on.
+- Typed text is never logged (only its length), and the key queue is cleared when a run ends.
+- Characters that cannot be typed on a **US keyboard layout** are skipped, and a warning with the count is logged. Other layouts
+  mistype symbols.
+- An empty password is refused unless it is a dry run.
 
-Stages: 1 corner slam, 2 settle, 3 drift to the Apple logo, 4 click the logo and wait for the menu, 5 drift down to Sleep and hover, 6 click Sleep, 7 wait for the link to drop.
+**Security.** The password is stored in plain text in the device's flash and in Home Assistant, and anyone who can press the
+button or use the API can type it into your Mac. This is acceptable for a home setup only. The API encryption key and OTA password
+are what protect it.
 
-- The slam sends large reports (up to 127 counts) X first, then Y, and overshoots on purpose: macOS clamps at the edges.
-- Drift moves 1-3 counts per report at a fixed interval, to stay in the pointer-acceleration curve's linear region. **Drift scale (%)** multiplies every drift distance, so one tweak re-calibrates everything.
-- The macro runs as a non-blocking state machine, so Wi-Fi, the API and OTA keep working.
-- It refuses to start (status `failed: not connected`) if Bluetooth is not connected, and ignores a start while a macro is running. A full run also refuses within the **Macro cooldown** (default 60 s) of the last full run. Calibration tests are exempt.
-- Starting stops any jiggle in flight (and undoes its displacement). The jiggle scheduler does not fire during the macro. Buttons are pressed only by the macro and are always released, including on cancel, error, or lost link.
-- **Cancel macro** stops it immediately: it releases any held button, leaves the pointer where it is, and clicks nothing. The Apple menu may be left open.
-- If sleep is not seen within the timeout the status is `failed: no sleep detected`. It does not retry and does not change the jiggler.
-- A link drop for any other reason (the Mac going out of range, for example) also counts as success. The jiggler cannot tell them apart.
+### Key tests (diagnostic entities)
 
-### After a confirmed sleep
+`Key test: tap Space`, `Key test: type sample text` (expected: `abc XYZ 123 !@#$%^&*() -_=+ [];',./`), `Key test: tap Eject`
+and `Key test: Cmd+Option+Eject`. A bare Eject did nothing on the owner's Mac. The chord is untested.
 
-- **Disable jiggler after sleep macro** (default on): turns **Jiggler enabled** off.
-- **Quiet after sleep** (default on): the jiggler stops advertising and does not try to reconnect, and so sends nothing, until you next enable the jiggler from HA or start pairing mode. The reason: a bonded Bluetooth mouse that advertises or connects can wake a sleeping Mac. This is persisted across a restart of the board.
-  - Interplay with the normal reconnect behavior: normally a bonded jiggler advertises forever. In quiet mode that is suppressed. **macOS reconnects to a bonded mouse only when it sees it advertising**, so after you wake the Mac yourself nothing reconnects until you turn **Jiggler enabled** on (or hold BOOT for 3 s for pairing mode). Turning the jiggler on while the Mac is still asleep starts advertising and may wake the Mac. This was designed from the code and has not been observed on a real Mac.
-  - Switching **Quiet after sleep** off also ends quiet mode.
-- A dry run changes nothing: no quiet mode, no jiggler change.
-
-### Connection interval
-
-Bluetooth notifications are delivered only at connection events, so reports sent faster than the connection interval get batched and make the drift speed uneven. During a macro the jiggler requests 7.5-15 ms with no slave latency, polls `esp_ble_get_current_conn_params()` for up to 2 s, logs the negotiated interval (look for `Negotiated connection interval` in the logs), and raises every step interval to at least that value. It restores the normal 30-50 ms afterwards. The Mac decides whether to grant the request; if it does not, the log says so (`Short connection interval not granted`) and the macro simply runs slower. ESPHome's `esp32_ble` does not forward the connection-update event's payload, which is why it polls instead. **Observed behavior on a real Mac: unknown.**
-
-### Entities
-
-Actions: **Put Mac to sleep**, **Cancel macro**, and four calibration buttons (**Macro test 1** to **4**).
-Selectors: **Target macOS** (Tahoe default, Sequoia, Sonoma, Custom) and **Menu corner** (Top-left, Top-right). Choosing a preset loads that preset's starting numbers into the number entities. Editing any of those numbers by hand switches the selector to **Custom**. All presets are unverified guesses, labeled as such in the logs.
-Switches: **Sleep macro dry run** (default off), **Disable jiggler after sleep macro**, **Quiet after sleep**.
-Status: **Sleep macro status** (`idle`, `running: <stage>`, `succeeded`, `failed: <reason>`; calibration tests end with `test N done`, a dry run with `succeeded (dry run)`), **Sleep macro running**, **Last sleep macro** (timestamp of the last live full run).
-Numbers (config entities, saved across restarts, no reflash needed): slam report count, counts per report (max 127), interval (ms), settle time (ms), repeat passes; drift counts per step (1-3), step interval (ms), drift scale (%); Apple logo X and Y (counts); Sleep row Y and X adjust (counts); dwell before click, click hold, menu-open dwell, hover dwell (ms); confirmation timeout (s); cooldown (s).
-
-The four tests: **Test 1** stages 1-2 (corner), **Test 2** stages 1-3 (Apple logo, no click), **Test 3** stages 1-4 (opens the Apple menu and leaves it open: one click, on the logo), **Test 4** stages 1-5 (opens the menu, then hovers Sleep: one click on the logo, never on Sleep). With **Dry run** on, no button is pressed in any of them.
-
-### Calibration procedure (at the Mac)
-
-1. Turn **Sleep macro dry run** on. Make sure the Mac is awake and unlocked and the jiggler is paired and connected. Set **Target macOS** to the nearest version.
-2. **Test 1**: the pointer must land in the leftmost display's top-left corner. If it lands elsewhere, fix the display-arrangement assumption, raise the slam report count, or set **Slam repeat passes** to 2.
-3. **Test 2**: adjust **Apple logo X** and **Y** until the pointer sits on the Apple logo.
-4. Turn dry run **off**. **Test 3**: the Apple menu should open. Click elsewhere with your own mouse to close it between attempts.
-5. **Test 4**: adjust **Sleep row Y** until the highlight is centered on **Sleep**, not on Force Quit or Restart. Aim for the middle of the row; the row height is your tolerance.
-6. Run the full macro once while watching. When it is reliable, schedule it (`ha/script_sleep_mac.yaml`, `ha/automation_nightly_sleep.yaml`).
-7. Recalibrate if you change the Mac's tracking speed, display scaling, language or macOS version. **Drift scale (%)** is the quick global tweak.
-
-Known failure behavior: there is no feedback channel. If the Apple menu fails to open, the second click lands on whatever window is under the pointer. Keep dry run on until the numbers are stable, and keep nothing risky under the click path.
+### First test of the unlock macro
+1. Turn **Unlock dry run** on and press **Wake and unlock Mac** with the Mac awake: the pointer should wiggle in a small square and
+   come back, and **Key status** should end at `done (dry run)`.
+2. Set **Mac password** in HA. Lock the Mac (Ctrl+Cmd+Q) and let the display sleep.
+3. Turn dry run off, press **Wake and unlock Mac**, and watch the login window. If the password field is not ready when typing
+   starts, raise **password field wait**. If the first key is lost, raise **wake wait**.
+4. Then try it with the Mac fully asleep. Check **Key status** and the device log (`Unlock start...`).
 
 ### Updating the board over the air
 
-The macro does not change the partition table, so an existing board can take it by OTA: **Device Builder -> Install -> Wirelessly**, or `esphome run jiggler.yaml --device ble-jiggler.local`. The config fetches the component from GitHub (`@main`), so push this change first, or switch `external_components` to the local block. The Bluetooth bond survives OTA.
+Device Builder -> Install -> Wirelessly, or `esphome run jiggler.yaml --device ble-jiggler.local`. The partition table is
+unchanged, so OTA works. The Bluetooth bond survives an update, but the Mac needs a fresh pairing the first time the keyboard
+channel is added. Note that `external_components` fetches `@main` from GitHub, and ESPHome caches that for a day: push your
+commits first and add `refresh: always` to the `external_components` entry in the YAML pane (it is not in the structured editor),
+or use the local-components block from the comments in `jiggler.yaml`.
 
-**Measured on this build** (ESPHome 2026.9.1): flash 1,251,032 of 1,835,008 bytes per OTA slot (68.2%, up 20,550 bytes from 67.1%), about 584 KB free; RAM 141,444 of 321,296 bytes (44.0%, up 3,112).
+### Checks without a Mac
+- `python3 tools/simulate_keys.py` checks the ASCII to HID table against a US-layout table and parses the real report
+  descriptor (balanced collections, report sizes, report references matching the IDs).
+- `python3 tools/simulate_unlock.py` compiles the real `unlock_plan.h` and checks the action stream for many passwords.
 
-## Keyboard and consumer keys (spike, UNVERIFIED on hardware)
-
-The device is now a combo HID device: the mouse (Report ID 1, unchanged), a keyboard (ID 2) and a
-consumer-control channel (ID 3, for keys such as Eject). It advertises as a generic HID device
-(appearance 0x03C0) instead of a mouse. Only the firmware side exists so far: three diagnostic buttons
-(`Key test: tap Space`, `Key test: type sample text`, `Key test: tap Eject`) and the C++ API
-`key_tap`, `key_type`, `consumer_tap`, `key_cancel`.
-
-**After updating, forget the device in macOS Bluetooth settings and pair again.** macOS caches the HID report
-map, so an old pairing will keep behaving as a mouse and the key buttons will log
-`failed: keyboard not subscribed (re-pair the Mac)`.
-
-Things to watch for on the first run (none of them can be checked without a Mac):
-- macOS may show its Keyboard Setup Assistant the first time it sees the new keyboard.
-- Whether the sample text lands correctly in a text field (US layout is assumed for every symbol).
-- Whether Eject does anything on your Mac.
-- That mouse jiggling still works exactly as before.
-
-Typed text is never logged, and the queue is cleared when a sequence ends. A key sequence and the sleep macro
-never run at the same time, and the jiggler pauses while one runs.
-
-`python3 tools/simulate_keys.py` checks the ASCII to HID table against a US-layout table and parses the real
-report descriptor (balanced collections, report sizes 4 / 8+1 / 2, report references matching the IDs).
+### Removed: the pointer-only sleep macro
+An earlier version tried to put the Mac to sleep with the mouse alone (corner slam, drift to the Apple logo, click, drift to
+Sleep). It could not find the Apple logo on a real Mac, so it was removed along with its calibration entities and quiet mode.
+It remains in git history (commit `ede548c`).
 
 ## Power note
 
@@ -223,9 +205,9 @@ The Bluetooth name, manufacturer string and VID/PID are what macOS and any devic
 jiggler.yaml                  main ESPHome config
 secrets.example.yaml          placeholders for Wi-Fi, API key, OTA password
 components/ble_hid_mouse/     custom component (HID-over-GATT, pairing, jiggle scheduler, OLED icon drawing in jiggler_ui.h,
-                              sleep macro: sleep_macro_plan.h = pure planner, sleep_macro.cpp = BLE glue)
+                              keyboard.cpp = key and unlock glue, unlock_plan.h = pure unlock planner, hid_keys.h = ASCII to HID)
 ha/                           example automations (alert, schedule, restart) and dashboard card
 tools/simulate_jitter.py      scheduler/jitter simulation with assertions
-tools/simulate_macro.py       sleep macro report-stream simulation (builds tools/macro_harness.cpp)
+tools/simulate_unlock.py      unlock macro action-stream simulation (builds tools/unlock_harness.cpp)
 tools/simulate_keys.py        keymap table and HID descriptor checks (builds tools/keymap_harness.cpp)
 ```

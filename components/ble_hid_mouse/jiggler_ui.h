@@ -23,10 +23,6 @@ struct UiState {
   float ota_pct;     // 0..100
   uint32_t now_ms;
   bool test_pattern;
-  // Sleep macro. Value-initialised to off, so builds that never set these are unaffected.
-  uint8_t macro_stage;   // 0 = not running, else 1..7
-  uint8_t macro_result;  // 0 none, 1 success, 2 failure
-  bool dry_run;          // dry run is switched on
 };
 
 static const Color ON(255, 255, 255);
@@ -144,59 +140,6 @@ inline void ota_screen(Display &it, float pct, uint32_t now) {
   if (w > 0) it.filled_rectangle(5, 32, w, 4, ON);
 }
 
-// Dotted outline (every other pixel) marking dry-run mode.
-inline void dotted_rect(Display &it, int x, int y, int w, int h) {
-  for (int i = 0; i < w; i += 2) {
-    it.draw_pixel_at(x + i, y, ON);
-    it.draw_pixel_at(x + i, y + h - 1, ON);
-  }
-  for (int j = 0; j < h; j += 2) {
-    it.draw_pixel_at(x, y + j, ON);
-    it.draw_pixel_at(x + w - 1, y + j, ON);
-  }
-}
-
-// Crescent moon centred at (cx, cy).
-inline void moon(Display &it, int cx, int cy, int r) {
-  it.filled_circle(cx, cy, r, ON);
-  it.filled_circle(cx + (2 * r) / 3, cy - r / 5, r - 2, OFF);
-}
-
-// Sleep macro screen: moon, 7 stage pips (done = filled, current = boxed, to-do = outline),
-// and after the run a check mark or an X beside the moon.
-inline void macro_screen(Display &it, uint8_t stage, uint8_t result, bool dry, uint32_t now) {
-  moon(it, 26, 14, 11);
-  if (dry) dotted_rect(it, 9, 1, 36, 28);
-  if (stage > 0) {
-    for (int i = 0; i < 7; i++) {
-      const int x = 6 + i * 9;
-      if (i < stage - 1) {
-        it.filled_rectangle(x, 33, 6, 4, ON);
-      } else if (i == stage - 1) {
-        it.rectangle(x - 1, 32, 8, 6, ON);
-        if ((now / 300) % 2 == 0) it.filled_rectangle(x + 1, 34, 4, 2, ON);
-      } else {
-        it.rectangle(x, 33, 6, 4, ON);
-      }
-    }
-    // Zzz drifting up beside the moon.
-    const int z = (now / 400) % 3;
-    it.horizontal_line(50, 22 - z * 4, 6, ON);
-    it.line(55, 22 - z * 4, 50, 26 - z * 4, ON);
-    it.horizontal_line(50, 26 - z * 4, 6, ON);
-  } else if (result == 1) {  // check mark
-    for (int o = 0; o < 2; o++) {
-      it.line(48, 16 + o, 53, 22 + o, ON);
-      it.line(53, 22 + o, 64, 6 + o, ON);
-    }
-  } else if (result == 2) {  // X
-    for (int o = 0; o < 2; o++) {
-      it.line(49 + o, 7, 63 + o, 23, ON);
-      it.line(63 + o, 7, 49 + o, 23, ON);
-    }
-  }
-}
-
 inline void test_pattern(Display &it) {
   it.rectangle(0, 0, 72, 40, ON);                // window border
   it.filled_rectangle(0, 0, 4, 4, ON);           // corner blocks (all four must be visible)
@@ -217,16 +160,11 @@ inline void draw(Display &it, const UiState &s) {
     ota_screen(it, s.ota_pct, s.now_ms);
     return;
   }
-  if (s.macro_stage > 0 || s.macro_result > 0) {
-    macro_screen(it, s.macro_stage, s.macro_result, s.dry_run, s.now_ms);
-    return;
-  }
   bt_icon(it, 4, 4, s.bt, s.now_ms);
   mouse_icon(it, 29, 4, s.enabled, s.pulse, s.now_ms);
   wifi_icon(it, 53, 3, s.wifi_bars);
   ha_icon(it, 56, 19, s.api_up);
   if (s.progress >= 0.0f) progress_bar(it, s.progress);
-  if (s.dry_run) dotted_rect(it, 27, 2, 18, 24);  // dry-run marker around the mouse icon
 }
 
 }  // namespace jiggler_ui
