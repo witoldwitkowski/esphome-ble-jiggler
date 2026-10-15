@@ -41,8 +41,8 @@ Other choices:
 | Unlock macro on a real Mac: reconnect from sleep, Space then Return reaching the lock screen, timings | **Not verified** |
 
 **Build footprint** (ESPHome 2026.9.1, ESP32-C3, 4 MB flash):
-- RAM: 139,764 of 321,296 bytes (43.5%).
-- Flash: app 1,245,944 of 1,835,008 bytes per OTA slot (67.9%, about 590 KB free). OTA uses two slots (`0x1C0000` each).
+- RAM: 140,124 of 321,296 bytes (43.6%).
+- Flash: app 1,250,904 of 1,835,008 bytes per OTA slot (68.2%, about 584 KB free). OTA uses two slots (`0x1C0000` each).
 - NVS (settings + Bluetooth bonds): 448 KB.
 
 **Simulation** (`python3 tools/simulate_jitter.py`) models the scheduler logic from the C++ code and asserts: every interval is within [min, max]; every jiggle nets exactly (0, 0); amplitude stays within 1..configured (hard range 1-5); no reports while disconnected, and skipped jiggles are not queued or replayed; a jiggle cut short by a disconnect is undone on reconnect; min > max clamps to max = min; button and wheel bytes are always 0. It tests scheduling only, not Bluetooth.
