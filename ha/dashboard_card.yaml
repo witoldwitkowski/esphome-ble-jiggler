@@ -29,9 +29,13 @@ cards:
       - entity: button.ble_jiggler_restart
 
   - type: entities
-    title: Wake and unlock Mac
+    title: Sleep and unlock Mac
     show_header_toggle: false
     entities:
+      - entity: button.ble_jiggler_put_mac_to_sleep
+      - entity: select.ble_jiggler_sleep_key
+      - entity: switch.ble_jiggler_turn_jiggler_off_after_sleep
+      - type: divider
       - entity: button.ble_jiggler_wake_and_unlock_mac
       - entity: button.ble_jiggler_cancel_key_sequence
       - entity: sensor.ble_jiggler_key_status

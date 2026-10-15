@@ -369,7 +369,7 @@ void BLEHIDMouse::gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t 
     esp_ble_gap_set_security_param(ESP_BLE_SM_MAX_KEY_SIZE, &key_size, sizeof(key_size));
     esp_ble_gap_set_security_param(ESP_BLE_SM_SET_INIT_KEY, &keys, sizeof(keys));
     esp_ble_gap_set_security_param(ESP_BLE_SM_SET_RSP_KEY, &keys, sizeof(keys));
-    esp_ble_gap_config_local_icon(0x03C0);  // 0x03C0: mouse + keyboard + consumer
+    esp_ble_gap_config_local_icon(0x03C1);  // 0x03C1: keyboard (it also carries a mouse and media keys)
 
     this->refresh_bond_state_();
     ESP_LOGI(TAG, "GATTS registered (if=%u), %s", gatts_if, this->has_bond_ ? "bond present" : "no bond");
@@ -638,7 +638,7 @@ void BLEHIDMouse::begin_adv_config_(AdvMode mode) {
       0x02, ESP_BLE_AD_TYPE_FLAG, flags,                                         // flags
       0x05, ESP_BLE_AD_TYPE_16SRV_CMPL, UUID_HID & 0xFF, UUID_HID >> 8, UUID_BATTERY & 0xFF,
       UUID_BATTERY >> 8,                                                         // 0x1812, 0x180F
-      0x03, ESP_BLE_AD_TYPE_APPEARANCE, 0xC0, 0x03,                              // generic HID
+      0x03, ESP_BLE_AD_TYPE_APPEARANCE, 0xC1, 0x03,                              // keyboard
   };
   esp_err_t err = esp_ble_gap_config_adv_data_raw(const_cast<uint8_t *>(adv), sizeof(adv));
   if (err != ESP_OK) {

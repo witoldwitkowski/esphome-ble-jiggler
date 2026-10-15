@@ -88,7 +88,7 @@ Generate the API key with `openssl rand -base64 32` (or any 32-byte base64 value
 ## Pairing with the M1 Mac
 
 1. Put the jiggler in **pairing mode**: HA button **Start pairing mode**, or hold **BOOT for 3 s** and release. It advertises for 120 s (OLED shows the Bluetooth rune with animated waves).
-2. Mac: **System Settings → Bluetooth**. Find **MX Anywhere 3** (or your `ble_name`) under *Nearby Devices* and click **Connect**.
+2. Mac: **System Settings → Bluetooth**. Find **MX Keys Mini** (or your `ble_name`) under *Nearby Devices* and click **Connect**.
 3. Check that HA's **Bluetooth connected** turns on and the OLED shows the solid Bluetooth icon.
 4. If the Mac had cached an older pairing (common): in macOS Bluetooth settings click the **ⓘ** next to the device → **Forget This Device**; in HA press **Forget paired host** (or hold BOOT 10 s); then pair again from step 1.
 5. macOS may list the device as "Mouse" in Mouse settings. A mouse should not trigger the Keyboard Setup Assistant; if it appears, it can be dismissed.
@@ -97,12 +97,27 @@ Generate the API key with `openssl rand -base64 32` (or any 32-byte base64 value
 ## Keyboard and wake-and-unlock
 
 The device is a combo HID device: the mouse (Report ID 1, unchanged), a keyboard (ID 2) and a
-consumer-control channel (ID 3, for keys such as Eject). It advertises as a generic HID device
-(appearance 0x03C0) instead of a mouse.
+consumer-control channel (ID 3, for keys such as Eject). It reports as a **Logitech MX Keys Mini**
+keyboard (appearance 0x03C1) that also carries a mouse and media keys. The product ID `0xB369` is from memory and unverified; macOS only
+uses it for the icon and device quirks. The previous identity was the mouse "MX Anywhere 3" (`0xB025`).
 
-**After updating from a mouse-only firmware, forget the device in macOS Bluetooth settings and pair again.**
+**After changing the identity or updating from a mouse-only firmware, forget the device in macOS Bluetooth settings and pair again.**
 macOS caches the HID report map, so an old pairing keeps behaving as a mouse and the key buttons log
 `failed: keyboard not subscribed (re-pair the Mac)`.
+
+### Put Mac to sleep (HA button)
+
+The **Put Mac to sleep** button sends a key chord, chosen with the **Sleep key** select:
+
+| Option | What it needs | Status |
+|---|---|---|
+| `Shortcut: Ctrl+Option+Cmd+S` (default) | One-time Mac setup: in the **Shortcuts** app, make a shortcut with the **Sleep** action, then in its details set a **keyboard shortcut** of Ctrl+Option+Cmd+S. Works on any macOS version. | Chord reaches the Mac like any key; the Shortcut itself is not tested here |
+| `Cmd+Option+Eject` | Nothing. The classic Mac sleep chord. | **Untested**. A bare Eject did nothing on the owner's Mac |
+| `Ctrl+Shift+Eject (display only)` | Nothing. Sleeps the display, not the Mac. | **Untested** |
+
+**Turn jiggler off after sleep** (default on) switches the jiggler off after a sent chord so a jiggle does not wake the Mac. There is no
+feedback from the Mac, so `done` means the keys were sent, not that it slept. Pressing **Wake and unlock Mac** later turns the jiggler back
+on after a good unlock (if **Re-enable jiggler after unlock** is on).
 
 ### Wake and unlock Mac (UNVERIFIED on a real locked Mac)
 
@@ -197,7 +212,7 @@ All in the `substitutions:` block of `jiggler.yaml`:
 
 ## Security note
 
-The Bluetooth name, manufacturer string and VID/PID are what macOS and any device-management software will see. The defaults imitate a Logitech mouse; that is only a label, not a guarantee of anything. Managed Macs may restrict or log Bluetooth devices, and the policies on your employer's or school's equipment are yours to follow. Nothing here makes the device invisible to IT.
+The Bluetooth name, manufacturer string and VID/PID are what macOS and any device-management software will see. The defaults imitate a Logitech keyboard; that is only a label, not a guarantee of anything. Managed Macs may restrict or log Bluetooth devices, and the policies on your employer's or school's equipment are yours to follow. Nothing here makes the device invisible to IT.
 
 ## Project layout
 

@@ -12,14 +12,17 @@ substitutions:
   friendly_name: "BLE Jiggler"
 
   # --- Bluetooth identity (what the host sees) -------------------------------
-  # Name shown in macOS Bluetooth settings. Max 20 characters.
-  ble_name: "MX Anywhere 3"
+  # Reports as a keyboard that also carries a mouse and media keys. Name shown in macOS Bluetooth
+  # settings. Max 20 characters.
+  ble_name: "MX Keys Mini"
   ble_manufacturer: "Logitech"
-  ble_model: "MX Anywhere 3"
-  # PnP ID: source "usb" = USB-IF vendor id (0x046D is Logitech), or "bluetooth".
+  ble_model: "MX Keys Mini"
+  # PnP ID: source "usb" = USB-IF vendor id (0x046D is Logitech), or "bluetooth". The product id is
+  # from memory and UNVERIFIED; macOS only uses it for the icon and device quirks, so a wrong value is harmless.
+  # Previous mouse-only identity: "MX Anywhere 3", product id 0xB025.
   ble_vid_source: usb
   ble_vid: "0x046D"
-  ble_pid: "0xB025"
+  ble_pid: "0xB369"
   ble_version: "0x0001"
   pairing_timeout: 120s
 
@@ -201,6 +204,9 @@ globals:
   - id: key_seq_seen
     type: uint32_t
     initial_value: "0"
+  - id: sleep_pending
+    type: bool
+    initial_value: "false"
 
 # -----------------------------------------------------------------------------
 # Controls
@@ -249,6 +255,14 @@ switch:
     icon: mdi:led-on
     entity_category: config
     restore_mode: RESTORE_DEFAULT_OFF
+    optimistic: true
+
+  - platform: template
+    name: "Turn jiggler off after sleep"
+    id: sleep_disable_jiggler
+    icon: mdi:mouse-off
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
     optimistic: true
 
   - platform: template
@@ -411,6 +425,20 @@ number:
     restore_value: true
     initial_value: 30
 
+select:
+  - platform: template
+    name: "Sleep key"
+    id: sleep_method
+    icon: mdi:keyboard-settings
+    entity_category: config
+    options:
+      - "Shortcut: Ctrl+Option+Cmd+S"
+      - "Cmd+Option+Eject"
+      - "Ctrl+Shift+Eject (display only)"
+    initial_option: "Shortcut: Ctrl+Option+Cmd+S"
+    optimistic: true
+    restore_value: true
+
 text:
   # The Mac login password, typed by "Wake and unlock Mac". Stored in this device's flash in plain text
   # and visible to anyone with access to this Home Assistant. US keyboard layout is assumed.
@@ -447,6 +475,23 @@ button:
     on_press:
       - lambda: |-
           id(mouse)->forget_host();
+          id(last_activity_ms) = millis();
+  - platform: template
+    name: "Put Mac to sleep"
+    id: sleep_button
+    icon: mdi:laptop-off
+    on_press:
+      - lambda: |-
+          using namespace esphome::ble_hid_mouse;
+          const std::string m = std::string(id(sleep_method).current_option());
+          bool sent;
+          if (m == "Cmd+Option+Eject")
+            sent = id(mouse)->consumer_tap(0x00B8, HID_MOD_LGUI | HID_MOD_LALT);
+          else if (m == "Ctrl+Shift+Eject (display only)")
+            sent = id(mouse)->consumer_tap(0x00B8, HID_MOD_LCTRL | HID_MOD_LSHIFT);
+          else  // a macOS Shortcut with the Sleep action, bound to Ctrl+Option+Cmd+S
+            sent = id(mouse)->key_tap(HID_MOD_LCTRL | HID_MOD_LALT | HID_MOD_LGUI, 0x16);
+          id(sleep_pending) = sent && id(sleep_disable_jiggler).state;
           id(last_activity_ms) = millis();
   - platform: template
     name: "Wake and unlock Mac"
@@ -663,6 +708,10 @@ interval:
           const uint32_t seq = m->key_run_seq();
           if (seq != id(key_seq_seen)) {
             id(key_seq_seen) = seq;
+            if (id(sleep_pending)) {
+              id(sleep_pending) = false;
+              if (m->key_last_ok()) id(jiggler_enabled).turn_off();  // a jiggle would wake the sleeping Mac
+            }
             if (m->key_last_was_live_unlock() && m->key_last_ok() && id(unlock_enable_jiggler).state)
               id(jiggler_enabled).turn_on();
           }

@@ -45,14 +45,14 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_MANUFACTURER, default="Logitech"): cv.All(
             cv.string, cv.Length(min=1, max=30)
         ),
-        cv.Optional(CONF_MODEL, default="MX Anywhere 3"): cv.All(
+        cv.Optional(CONF_MODEL, default="MX Keys Mini"): cv.All(
             cv.string, cv.Length(min=1, max=30)
         ),
         cv.Optional(CONF_VENDOR_ID_SOURCE, default="usb"): cv.enum(
             VENDOR_ID_SOURCES, lower=True
         ),
         cv.Optional(CONF_VENDOR_ID, default=0x046D): cv.hex_uint16_t,
-        cv.Optional(CONF_PRODUCT_ID, default=0xB025): cv.hex_uint16_t,
+        cv.Optional(CONF_PRODUCT_ID, default=0xB369): cv.hex_uint16_t,
         cv.Optional(CONF_PRODUCT_VERSION, default=0x0001): cv.hex_uint16_t,
         cv.Optional(CONF_PAIRING_TIMEOUT, default="120s"): cv.All(
             cv.positive_time_period_seconds,
